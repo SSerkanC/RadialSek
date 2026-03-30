@@ -1,0 +1,76 @@
+RADIAL SEK INSTALLER KURULUM ADIMLARI
+
+1. INNO SETUP 6 KUR
+
+Bilgisayarinda Inno Setup 6 kurulu degilse once onu kur.
+Kurulumdan sonra ISCC.exe genelde su yollardan birinde olur:
+
+- C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+- C:\Program Files\Inno Setup 6\ISCC.exe
+
+
+2. RELEASE KLASORUNU KONTROL ET
+
+Asagidaki klasorde su dosyalar olmali:
+
+C:\Users\salih\OneDrive\Desktop\Kendi Yaptığım Programlar\Radial Menü\Radial Sek
+
+Beklenenler:
+- publish\
+- RadialSek_Setup.iss
+- build_installer.ps1
+- RELEASE_NOTLARI.txt
+
+
+3. INSTALLER OLUSTUR
+
+En kolay yol:
+
+PowerShell ac ve su komutu calistir:
+
+& "C:\Users\salih\OneDrive\Desktop\Kendi Yaptığım Programlar\Radial Menü\Radial Sek\build_installer.ps1"
+
+Bu script:
+- Inno Setup 6'yi arar
+- RadialSek_Setup.iss dosyasini derler
+- Kurulum .exe'sini ayni klasore cikarir
+
+
+4. MANUEL DERLEME ALTERNATIFI
+
+Istersen Inno Setup arayuzunden de derleyebilirsin:
+
+- RadialSek_Setup.iss dosyasina cift tikla
+- Inno Setup Editor acilsin
+- Ust menuden Build > Compile sec
+
+
+5. BEKLENEN CIKTI
+
+Derleme sonunda bu dosya release klasorunde olusur:
+
+- RadialSek_Setup_1_0_0.exe
+
+
+6. DAGITIM ONCESI KISA TEST
+
+Installer olustuktan sonra su akisi test et:
+
+- Kurulum aciliyor mu
+- Program Files altina kuruyor mu
+- Masaustu kisayolu olusuyor mu
+- Uygulama aciliyor mu
+- Tray ikonu gorunuyor mu
+- Radial menu hotkey ile aciliyor mu
+- Kaldirma islemi duzgun calisiyor mu
+
+
+7. RELEASE PUBLISH'I YENIDEN ALMAK GEREKIRSE
+
+Release publish'i tekrar almak icin:
+
+& "C:\Users\salih\OneDrive\Desktop\Kendi Yaptığım Programlar\Radial Menü\radial_sek_proje\release\publish_release.ps1" -OutputRoot "C:\Users\salih\OneDrive\Desktop\Kendi Yaptığım Programlar\Radial Menü\Radial Sek"
+
+Sonra tekrar:
+
+& "C:\Users\salih\OneDrive\Desktop\Kendi Yaptığım Programlar\Radial Menü\Radial Sek\build_installer.ps1"

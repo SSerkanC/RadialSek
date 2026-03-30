@@ -1,0 +1,576 @@
+<Window x:Class="RadialSek.UI.LauncherSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:RadialSek.Models"
+        Title="Menü Tasarımı"
+        Width="860"
+        Height="940"
+        MinWidth="760"
+        MinHeight="760"
+        Icon="../sek_logo.png"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Foreground="#F3F5F8">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBrush" Color="#11151B"/>
+        <SolidColorBrush x:Key="PanelAltBrush" Color="#171C24"/>
+        <SolidColorBrush x:Key="InputBrush" Color="#0D1117"/>
+        <SolidColorBrush x:Key="StrokeBrush" Color="#29303D"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#4F8BFF"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#6CA4FF"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#A0ABC0"/>
+
+        <LinearGradientBrush x:Key="HeroBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#1B2230" Offset="0"/>
+            <GradientStop Color="#151A21" Offset="0.48"/>
+            <GradientStop Color="#0F1217" Offset="1"/>
+        </LinearGradientBrush>
+
+        <Style x:Key="BaseButtonStyle" TargetType="Button">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="14">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background" Value="#1C232D"/>
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="#2A3342"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#34435A"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <ControlTemplate x:Key="ThemeComboToggleTemplate" TargetType="ToggleButton">
+            <Border Background="{StaticResource InputBrush}"
+                    BorderBrush="{StaticResource StrokeBrush}"
+                    BorderThickness="1"
+                    CornerRadius="14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="44"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Margin="14,0,10,0"
+                               VerticalAlignment="Center"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="#FFFFFF"
+                               Text="{Binding SelectedItem.DisplayName, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+                    <TextBlock Grid.Column="1"
+                               Text="v"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="16"
+                               Foreground="#FFFFFF"/>
+                </Grid>
+            </Border>
+        </ControlTemplate>
+
+        <DataTemplate x:Key="StyleComboTemplate" DataType="{x:Type models:MenuStyleOption}">
+            <StackPanel Margin="0,2">
+                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Description}" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="CategoryStripStyleComboTemplate" DataType="{x:Type models:CategoryStripStyleOption}">
+            <StackPanel Margin="0,2">
+                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Description}" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="CategoryStripFontComboTemplate" DataType="{x:Type models:CategoryStripFontOption}">
+            <StackPanel Margin="0,2">
+                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Description}" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ThemeComboTemplate" DataType="{x:Type models:ThemePalette}">
+            <Grid Margin="0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="12" Height="12" Fill="{Binding SegmentColor}" Margin="0,0,6,0"/>
+                    <Ellipse Width="12" Height="12" Fill="{Binding SegmentActiveColor}" Margin="0,0,6,0"/>
+                    <Ellipse Width="12" Height="12" Fill="{Binding CenterColor}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Key}" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <ControlTemplate x:Key="StyleComboToggleTemplate" TargetType="ToggleButton">
+            <Border Background="{StaticResource InputBrush}"
+                    BorderBrush="{StaticResource StrokeBrush}"
+                    BorderThickness="1"
+                    CornerRadius="14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="44"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Margin="14,0,10,0"
+                               VerticalAlignment="Center"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="#FFFFFF"
+                               Text="{Binding SelectedItem.DisplayName, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+                    <TextBlock Grid.Column="1"
+                               Text="v"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="16"
+                               Foreground="#FFFFFF"/>
+                </Grid>
+            </Border>
+        </ControlTemplate>
+
+        <Style x:Key="ThemeComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Height" Value="52"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource {x:Type ComboBoxItem}}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                                          Template="{StaticResource ThemeComboToggleTemplate}"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  VerticalAlignment="Center"/>
+                            </ToggleButton>
+                            <Popup x:Name="Popup"
+                                   Placement="Bottom"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   PopupAnimation="Fade">
+                                <Border Margin="0,8,0,0"
+                                        Background="{StaticResource PanelBrush}"
+                                        BorderBrush="{StaticResource StrokeBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="16"
+                                        Padding="6">
+                                    <ScrollViewer CanContentScroll="True"
+                                                  MaxHeight="320">
+                                        <StackPanel IsItemsHost="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="StyleComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource ThemeComboBoxStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                                          Template="{StaticResource StyleComboToggleTemplate}"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
+                            <Popup x:Name="Popup"
+                                   Placement="Bottom"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   PopupAnimation="Fade">
+                                <Border Margin="0,8,0,0"
+                                        Background="{StaticResource PanelBrush}"
+                                        BorderBrush="{StaticResource StrokeBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="16"
+                                        Padding="6">
+                                    <ScrollViewer CanContentScroll="True"
+                                                  MaxHeight="320">
+                                        <StackPanel IsItemsHost="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="#0B0D10" BorderBrush="#29303D" BorderThickness="1" CornerRadius="24">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Grid Height="46" Background="Transparent" MouseLeftButtonDown="OnTitleBarMouseDown">
+                <TextBlock Text="Menü Tasarımı"
+                           Margin="18,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="#DDE6F1"/>
+                <Button HorizontalAlignment="Right"
+                        Width="36"
+                        Height="28"
+                        Margin="0,0,12,0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Background="Transparent"
+                        Click="OnCloseClicked">
+                    <TextBlock Text="x" FontSize="13" FontWeight="Bold"/>
+                </Button>
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="22,8,22,22">
+                    <Border x:Name="PreviewHeroCard"
+                            Background="{StaticResource HeroBrush}"
+                            BorderBrush="{StaticResource StrokeBrush}"
+                            BorderThickness="1"
+                            CornerRadius="26"
+                            Padding="20">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel>
+                                <TextBlock Text="Canlı Önizleme"
+                                           FontSize="24"
+                                           FontWeight="Bold"/>
+                                <TextBlock Text="Seçim yaptıkça radial menü burada hafif animasyonla kendini günceller."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="14"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <Border Grid.Row="1"
+                                    Margin="0,18,0,0"
+                                    Height="340"
+                                    Background="#0D1117"
+                                    BorderBrush="{StaticResource StrokeBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="22"
+                                    Padding="14">
+                                <Canvas x:Name="PreviewCanvas"/>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <UniformGrid Columns="2" Margin="0,18,0,0">
+                        <Border Margin="0,0,9,12"
+                                Padding="18"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource StrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="22">
+                            <StackPanel>
+                                <TextBlock Text="Hedefleme Modu" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Hedefleme çizgisinin görünümünü seçin."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox x:Name="TargetingModeComboBox"
+                                          Margin="0,16,0,0"
+                                          Style="{StaticResource StyleComboBoxStyle}"
+                                          ItemTemplate="{StaticResource StyleComboTemplate}"
+                                          SelectedValuePath="Key"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="9,0,0,12"
+                                Padding="18"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource StrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="22">
+                            <StackPanel>
+                                <TextBlock Text="Stil" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Radial dilimlerin genel görünümünü seçin."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox x:Name="StyleComboBox"
+                                          Margin="0,16,0,0"
+                                          Style="{StaticResource StyleComboBoxStyle}"
+                                          ItemTemplate="{StaticResource StyleComboTemplate}"
+                                          SelectedValuePath="Key"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="0,0,9,0"
+                                Padding="18"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource StrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="22">
+                            <StackPanel>
+                                <TextBlock Text="Tema" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Renk paletini canlı olarak deneyin."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox x:Name="ThemeComboBox"
+                                          Margin="0,16,0,0"
+                                          Style="{StaticResource ThemeComboBoxStyle}"
+                                          ItemTemplate="{StaticResource ThemeComboTemplate}"
+                                          SelectedValuePath="Key"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="9,0,0,0"
+                                Padding="18"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource StrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="22">
+                            <StackPanel>
+                                <TextBlock Text="Açılış Animasyonu" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Radial menü açıldığında nasıl sahneye girdiğini seçin."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox x:Name="OpenAnimationComboBox"
+                                          Margin="0,16,0,0"
+                                          Style="{StaticResource StyleComboBoxStyle}"
+                                          ItemTemplate="{StaticResource StyleComboTemplate}"
+                                          SelectedValuePath="Key"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="0,12,9,0"
+                                Padding="18"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource StrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="22">
+                            <StackPanel>
+                                <TextBlock Text="Şerit Tasarımı" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Kategori hover şeridinin görünümünü seçin."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox x:Name="CategoryStripStyleComboBox"
+                                          Margin="0,16,0,0"
+                                          Style="{StaticResource StyleComboBoxStyle}"
+                                          ItemTemplate="{StaticResource CategoryStripStyleComboTemplate}"
+                                          SelectedValuePath="Key"/>
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Şerit Opaklığı"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource MutedBrush}"/>
+                                    <TextBlock x:Name="CategoryStripOpacityValueText"
+                                               Grid.Column="1"
+                                               VerticalAlignment="Center"
+                                               Foreground="White"
+                                               FontWeight="SemiBold"/>
+                                </Grid>
+                                <Slider x:Name="CategoryStripOpacitySlider"
+                                        Margin="0,10,0,0"
+                                        Minimum="0.15"
+                                        Maximum="1"
+                                        Value="0.98"
+                                        SmallChange="0.01"
+                                        LargeChange="0.05"
+                                        TickFrequency="0.05"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="9,12,0,0"
+                                Padding="18"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource StrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="22">
+                            <StackPanel>
+                                <TextBlock Text="Şerit Fontu" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Şerit üzerinde kullanılacak fontu seçin."
+                                           Margin="0,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox x:Name="CategoryStripFontComboBox"
+                                          Margin="0,16,0,0"
+                                          Style="{StaticResource StyleComboBoxStyle}"
+                                          ItemTemplate="{StaticResource CategoryStripFontComboTemplate}"
+                                          SelectedValuePath="Key"/>
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Yazi Opakligi"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource MutedBrush}"/>
+                                    <TextBlock x:Name="CategoryStripFontOpacityValueText"
+                                               Grid.Column="1"
+                                               VerticalAlignment="Center"
+                                               Foreground="White"
+                                               FontWeight="SemiBold"/>
+                                </Grid>
+                                <Slider x:Name="CategoryStripFontOpacitySlider"
+                                        Margin="0,10,0,0"
+                                        Minimum="0.15"
+                                        Maximum="1"
+                                        Value="1"
+                                        SmallChange="0.01"
+                                        LargeChange="0.05"
+                                        TickFrequency="0.05"/>
+                                <Button Margin="0,14,0,0"
+                                        Padding="14,10"
+                                        HorizontalAlignment="Left"
+                                        Click="OnCategoryStripFontColorClicked"
+                                        Style="{StaticResource SecondaryButtonStyle}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border x:Name="CategoryStripFontColorSwatch"
+                                                Width="18"
+                                                Height="18"
+                                                Margin="0,0,10,0"
+                                                CornerRadius="9"
+                                                BorderBrush="#66FFFFFF"
+                                                BorderThickness="1"/>
+                                        <TextBlock Text="Yazi Rengi"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <Border Margin="0,16,0,0"
+                            Padding="18"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource StrokeBrush}"
+                            BorderThickness="1"
+                            CornerRadius="22">
+                        <StackPanel>
+                            <TextBlock Text="Gradient Çemberler" FontSize="18" FontWeight="Bold"/>
+                            <TextBlock Text="İç ve dış gradient çemberlerin kalınlığını canlı önizleme ile ayarlayın."
+                                       Margin="0,8,0,0"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       TextWrapping="Wrap"/>
+
+                            <Grid Margin="0,18,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="İç Gradient Çember"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="InnerGradientRingThicknessValueText"
+                                           Grid.Column="1"
+                                           VerticalAlignment="Center"
+                                           Foreground="White"
+                                           FontWeight="SemiBold"/>
+                            </Grid>
+                            <Slider x:Name="InnerGradientRingThicknessSlider"
+                                    Margin="0,10,0,0"
+                                    Minimum="0.4"
+                                    Maximum="2.5"
+                                    Value="1"
+                                    SmallChange="0.05"
+                                    LargeChange="0.1"
+                                    TickFrequency="0.1"/>
+
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Dış Gradient Çember"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="OuterGradientRingThicknessValueText"
+                                           Grid.Column="1"
+                                           VerticalAlignment="Center"
+                                           Foreground="White"
+                                           FontWeight="SemiBold"/>
+                            </Grid>
+                            <Slider x:Name="OuterGradientRingThicknessSlider"
+                                    Margin="0,10,0,0"
+                                    Minimum="0.4"
+                                    Maximum="2.5"
+                                    Value="1"
+                                    SmallChange="0.05"
+                                    LargeChange="0.1"
+                                    TickFrequency="0.1"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="22,0,22,22">
+                <Button Content="İptal"
+                        Width="120"
+                        Height="46"
+                        Margin="0,0,10,0"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="OnCancelClicked"/>
+                <Button Content="Uygula"
+                        Width="140"
+                        Height="46"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Click="OnApplyClicked"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

@@ -1,0 +1,83 @@
+name: Build and Release Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK 5
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "5.0.x"
+
+      - name: Publish app
+        run: >
+          dotnet publish radial_sek.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -o release/publish
+          /p:PublishSingleFile=false
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $refType = "${{ github.ref_type }}"
+          $refName = "${{ github.ref_name }}"
+          $version = "1.0.0"
+
+          if ($refType -eq "tag" -and $refName) {
+            if ($refName.StartsWith("v")) {
+              $version = $refName.Substring(1)
+            } else {
+              $version = $refName
+            }
+          }
+
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Installer version: $version"
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $possibleIscc = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $possibleIscc | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $iscc) {
+            throw "ISCC.exe bulunamadi."
+          }
+
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.value }}" "release\RadialSek_Setup.iss"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RadialSek-Installer
+          path: release/RadialSek_Setup_*.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release and upload installer
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/RadialSek_Setup_*.exe
+          generate_release_notes: true

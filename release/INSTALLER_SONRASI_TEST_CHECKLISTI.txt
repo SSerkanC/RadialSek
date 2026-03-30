@@ -1,0 +1,76 @@
+RADIAL SEK INSTALLER SONRASI TEST CHECKLISTI
+
+1. INNO SETUP KURULUM KONTROLU
+
+Asagidakilerden biri varsa Inno Setup 6 hazir:
+- C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+- C:\Program Files\Inno Setup 6\ISCC.exe
+
+
+2. INSTALLER DERLEME
+
+PowerShell ac:
+
+& "C:\Users\salih\OneDrive\Desktop\Kendi Yaptığım Programlar\Radial Menü\Radial Sek\build_installer.ps1"
+
+Beklenen cikti:
+- RadialSek_Setup_1_0_0.exe
+
+
+3. KURULUM ONCESI KONTROL
+
+- Installer dosyasi olustu mu
+- publish klasoru dolu mu
+- radial_sek.exe publish altinda var mi
+
+
+4. KURULUM TESTI
+
+Kurulum ekraninda kontrol et:
+- Program adi Radial Sek mi
+- Kurulum klasoru mantikli mi
+- Masaustu kisayolu secenegi var mi
+- Kurulum hatasiz tamamlaniyor mu
+
+
+5. ILK ACILIS TESTI
+
+Kurulumdan sonra kontrol et:
+- Uygulama aciliyor mu
+- Tray ikonu gorunuyor mu
+- Uygulama adi Radial Sek olarak gorunuyor mu
+- Ayarlar penceresi aciliyor mu
+
+
+6. CEKIRDEK FONKSIYON TESTI
+
+- Radial menu hotkey ile ilk basista aciliyor mu
+- Kategori hover ve alt menuler duzgun mu
+- Hedefleme modu calisiyor mu
+- Surukleme modu calisiyor mu
+- Sag tik context menu aciliyor mu
+- Renk secici ve sembol secici aciliyor mu
+
+
+7. OZELLIK TESTI
+
+- Hafif bekleme modu calisiyor mu
+- Baslangicta calistir secenegi dogru davranıyor mu
+- Menu Tasarimi penceresi ayarlari kaydediyor mu
+- Tema, stil ve animasyon secimi uygulaniyor mu
+
+
+8. KALDIRMA TESTI
+
+- Denetim Masasi / Uygulamalar listesinde Radial Sek gorunuyor mu
+- Kaldirma duzgun calisiyor mu
+- Program Files altindaki klasor temizleniyor mu
+- Masaustu kisayolu siliniyor mu
+
+
+9. YAYIN ONCESI SON KARAR
+
+Asagidaki 3 madde tamamsa yayin icin hazir sayilir:
+- Kurulum hatasiz
+- Ilk acilis ve temel akislarda hata yok
+- Kaldirma islemi duzgun

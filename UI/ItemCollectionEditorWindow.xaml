@@ -1,0 +1,264 @@
+<Window x:Class="RadialSek.UI.ItemCollectionEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Alt Menü Düzenleyici"
+        Width="860"
+        Height="620"
+        Icon="../sek_logo.png"
+        MinWidth="780"
+        MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B0D10"
+        Foreground="#FFFFFF">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBrush" Color="#15181E"/>
+        <SolidColorBrush x:Key="PanelAltBrush" Color="#1A1E24"/>
+        <SolidColorBrush x:Key="StrokeBrush" Color="#29303D"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#4F8BFF"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#A0ABC0"/>
+        <SolidColorBrush x:Key="InputBrush" Color="#0E1115"/>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <Style x:Key="BaseButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="12">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        </Style>
+
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background" Value="#1E232B"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Background="{StaticResource PanelBrush}"
+                CornerRadius="22"
+                Padding="20">
+            <StackPanel>
+                <TextBlock x:Name="TitleTextBlock"
+                           FontSize="28"
+                           FontWeight="Bold"
+                           Text="Alt Menü"/>
+                <TextBlock x:Name="SubtitleTextBlock"
+                           Margin="0,8,0,0"
+                           Foreground="{StaticResource MutedBrush}"
+                           Text="Bu dilimin içinden açılacak alt öğeleri düzenleyin."/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1"
+              Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.05*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="0.95*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    VerticalAlignment="Top"
+                    Background="{StaticResource PanelBrush}"
+                    CornerRadius="22"
+                    Padding="18">
+                <Grid AllowDrop="True"
+                      DragOver="OnItemsDragOver"
+                      Drop="OnItemsDrop">
+                    <ListBox x:Name="ItemsListBox"
+                             Height="340"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             SelectionChanged="OnItemSelectionChanged">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0,0,0,10"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="ItemBorder"
+                                                    Background="{StaticResource PanelAltBrush}"
+                                                    BorderBrush="{StaticResource StrokeBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="14"
+                                                    Padding="12">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource StrokeBrush}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Label}"
+                                           Foreground="White"
+                                           FontWeight="SemiBold"
+                                           FontSize="15"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Column="1"
+                        Margin="16,0,16,0"
+                        VerticalAlignment="Top">
+                <Button ToolTip="Yeni Ekle"
+                        Width="46"
+                        Height="46"
+                        Margin="0,0,0,10"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="OnAddClicked">
+                    <TextBlock Text="+" FontSize="22" FontWeight="Light"/>
+                </Button>
+                <Button ToolTip="Sil"
+                        Width="46"
+                        Height="46"
+                        Margin="0,0,0,10"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="OnRemoveClicked">
+                    <TextBlock Text="&#x00D7;" FontSize="14" FontWeight="Bold"/>
+                </Button>
+                <Button ToolTip="Yukar&#x0131; Ta&#x015F;&#x0131;"
+                        Width="46"
+                        Height="46"
+                        Margin="0,0,0,10"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="OnMoveUpClicked">
+                    <TextBlock Text="&#x2191;" FontSize="18" FontWeight="Bold"/>
+                </Button>
+                <Button ToolTip="A&#x015F;a&#x011F;&#x0131; Ta&#x015F;&#x0131;"
+                        Width="46"
+                        Height="46"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="OnMoveDownClicked">
+                    <TextBlock Text="&#x2193;" FontSize="18" FontWeight="Bold"/>
+                </Button>
+            </StackPanel>
+
+            <Border Grid.Column="2"
+                    VerticalAlignment="Top"
+                    Background="{StaticResource PanelBrush}"
+                    CornerRadius="22"
+                    Padding="18">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Öğe Bilgisi"
+                               FontSize="20"
+                               FontWeight="Bold"/>
+
+                    <StackPanel Grid.Row="1"
+                                Margin="0,18,0,0">
+                        <TextBlock Text="Görünen Ad"
+                                   Margin="0,0,0,8"
+                                   FontWeight="SemiBold"/>
+                        <TextBox x:Name="LabelTextBox"
+                                 Height="42"
+                                 TextChanged="OnEditorTextChanged"
+                                 LostFocus="OnTextBoxLostFocus"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2"
+                                Margin="0,18,0,0">
+                        <TextBlock Text="Hedef Yol"
+                                   Margin="0,0,0,8"
+                                   FontWeight="SemiBold"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="112"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TargetPathTextBox"
+                                     Margin="0,0,12,0"
+                                     Height="42"
+                                     VerticalContentAlignment="Center"
+                                     TextChanged="OnEditorTextChanged"
+                                     LostFocus="OnTextBoxLostFocus"/>
+                            <Button Grid.Column="1"
+                                    Content="Gözat"
+                                    Height="42"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Click="OnBrowseClicked"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3"
+                                VerticalAlignment="Bottom">
+                        <Button Content="Bu Öğenin Alt Menüsünü Düzenle"
+                                Height="44"
+                                Margin="0,0,0,12"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="OnEditChildrenClicked"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <DockPanel Grid.Row="2"
+                   Margin="0,18,0,0">
+            <TextBlock x:Name="StatusTextBlock"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource MutedBrush}"
+                       Text="Hazır"/>
+            <StackPanel Orientation="Horizontal"
+                        DockPanel.Dock="Right">
+                <Button Content="Kapat"
+                        Width="110"
+                        Height="42"
+                        Margin="0,0,10,0"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="OnCancelClicked"/>
+                <Button Content="Tamam"
+                        Width="140"
+                        Height="42"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Click="OnSaveClicked"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

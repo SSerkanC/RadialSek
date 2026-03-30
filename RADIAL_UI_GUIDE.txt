@@ -1,0 +1,31 @@
+Radial Sek UI Guide
+
+Bu dosya, radial menu tasarimi uzerine konusurken ortak bir dil kullanmak icin tutulur.
+
+Temel Bilesenler
+
+- Ana Daire: Ortadaki beyaz veya ana icerik alani.
+- Ana Daire Cercevesi: Ana dairenin etrafindaki koyu halka.
+- Donen Gradient Cember: Ana dairenin kenarinda donen ince vurgu cemberi.
+- Ana Halka: Dis taraftaki buyuk radial halka.
+- Dilim: Ana halka uzerindeki her bir parca.
+- Secili Dilim: Hover veya aktif durumda gorunen vurgulanmis dilim.
+- Dilim Ayiricilari: Dilimler arasindaki ince ayirici cizgiler.
+- Ikon: Her dilimin icinde yer alan gorsel oge.
+- Kategori Ikonu: Kategori ogelerini temsil eden ikon.
+- Alt Menu Halkasi: Kategori acilinca olusan ikinci halka.
+- Alt Menu Dilimi: Alt menu halkasindaki tek tek parcalar.
+- Merkez Baslik: Ana dairenin icindeki buyuk baslik metni.
+- Merkez Alt Metin: Ana daire icindeki aciklayici alt yazi.
+
+Kullanim Ornekleri
+
+- Ana daire biraz daha buyusun.
+- Donen gradient cember daha kalin olsun.
+- Secili dilim daha parlak gorunsun.
+- Alt menu halkasi parent ogeye biraz daha yakin olsun.
+- Merkez alt metin daha kucuk olsun.
+
+Not
+
+Bu rehber ihtiyaca gore genisletilebilir. Yeni stiller, animasyonlar veya bilesenler eklendikce dosyaya yeni tanimlar eklenebilir.

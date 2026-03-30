@@ -1,0 +1,29 @@
+RADIAL SEK RELEASE NOTLARI
+Surum: 1.0.0
+
+Bu klasor, Radial Sek'in yayinlanabilir paketini hazirlamak icin kullanilir.
+
+Icerik:
+- publish\
+  Release publish ciktilari burada olur.
+- RadialSek_Setup.iss
+  Inno Setup ile kurulum dosyasi olusturmak icin kullanilir.
+- build_installer.ps1
+  Inno Setup 6 kurulduktan sonra kurulum .exe'sini tek komutla derler.
+
+Onerilen dagitim yontemi:
+1. Once publish klasorunu olustur.
+2. Publish klasorunu temiz makinede test et.
+3. Bilgisayarda Inno Setup 6 kur.
+4. Sonra build_installer.ps1 dosyasini calistir veya RadialSek_Setup.iss dosyasini Inno Setup ile derle.
+
+Hizli kullanim:
+- Publish almak icin:
+  release\publish_release.ps1
+- Installer derlemek icin:
+  release\build_installer.ps1
+
+Notlar:
+- Proje simgesi su an .png kaynaklariyla calisiyor. Exe seviyesinde ozel ikon istenirse ayrica .ico dosyasi eklenmeli.
+- Config dosyasi publish klasorune kopyalanir.
+- Sistem tepsisi gorseli sek_system_tray_logo.png ile gelir.

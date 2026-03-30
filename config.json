@@ -1,0 +1,12 @@
+{
+  "MenuStyle": "Style1",
+  "Theme": "Crimson",
+  "Items": [
+    { "Label": "Explorer", "TargetPath": "explorer.exe" },
+    { "Label": "Notepad", "TargetPath": "notepad.exe" },
+    { "Label": "Calculator", "TargetPath": "calc.exe" },
+    { "Label": "Paint", "TargetPath": "mspaint.exe" },
+    { "Label": "Task Manager", "TargetPath": "taskmgr.exe" },
+    { "Label": "Cmd", "TargetPath": "cmd.exe" }
+  ]
+}

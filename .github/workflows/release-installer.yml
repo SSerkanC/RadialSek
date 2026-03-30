@@ -68,6 +68,15 @@ jobs:
 
           & $iscc "/DMyAppVersion=${{ steps.version.outputs.value }}" "release\RadialSek_Setup.iss"
 
+      - name: Create stable latest installer filename
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "release\RadialSek_Setup_*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            throw "Installer dosyasi bulunamadi."
+          }
+          Copy-Item $installer.FullName "release\RadialSek_Setup_Latest.exe" -Force
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:

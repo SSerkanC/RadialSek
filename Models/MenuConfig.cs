@@ -26,6 +26,7 @@ namespace RadialSek.Models
             ActivationShortcut.CreateOpenMenuDefault()
         };
         public AudioSettings Audio { get; set; } = new AudioSettings();
+        public ToolsSettings Tools { get; set; } = new ToolsSettings();
         public List<MenuPageConfig> Pages { get; set; } = new List<MenuPageConfig>
         {
             new MenuPageConfig { Title = "1" }

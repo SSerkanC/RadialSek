@@ -29,6 +29,7 @@ namespace RadialSek
         private bool _isStartupInitialized;
         private readonly DispatcherTimer _lightIdleTimer;
         private DateTime _lastMenuInteractionUtc;
+        private bool _isOverlayTransitionInProgress;
 
         public MainWindow()
         {
@@ -263,11 +264,13 @@ namespace RadialSek
         {
             void OpenMenuCore()
             {
+                _isOverlayTransitionInProgress = true;
                 try
                 {
                     MarkMenuInteraction();
                     if (_overlay != null)
                     {
+                        _overlay.ReleaseInputFailSafe("OpenMenuReuse");
                         if (_overlay.IsVisible)
                         {
                             _overlay.Dismiss();
@@ -289,13 +292,20 @@ namespace RadialSek
                 }
                 catch (Exception ex)
                 {
-                    WriteDiagnosticLog("Overlay açılırken hata", ex);
-                    _soundManager.Play(SoundCue.Error);
-                    _notifyIcon.ShowBalloonTip(
-                        2000,
-                        "Radial Sek",
-                        "Menü açılırken hata oluştu. Detaylar radial_sek_error.log dosyasına yazıldı.",
-                        Forms.ToolTipIcon.Error);
+                    WriteDiagnosticLog("Overlay açılırken hata (ilk deneme)", ex);
+                    if (!TryRecoverOverlayAfterOpenFailure(screenX, screenY, ex))
+                    {
+                        _soundManager.Play(SoundCue.Error);
+                        _notifyIcon.ShowBalloonTip(
+                            2000,
+                            "Radial Sek",
+                            "Menü açılırken hata oluştu. Detaylar radial_sek_error.log dosyasına yazıldı.",
+                            Forms.ToolTipIcon.Error);
+                    }
+                }
+                finally
+                {
+                    _isOverlayTransitionInProgress = false;
                 }
             }
 
@@ -306,6 +316,43 @@ namespace RadialSek
             else
             {
                 Dispatcher.Invoke(OpenMenuCore);
+            }
+        }
+
+        private bool TryRecoverOverlayAfterOpenFailure(double screenX, double screenY, Exception rootException)
+        {
+            try
+            {
+                if (_overlay != null)
+                {
+                    _overlay.MenuDismissed -= OnOverlayMenuDismissed;
+                    _overlay.ReleaseInputFailSafe("OpenMenuRecover");
+                    _overlay.DisposeWindow();
+                    _overlay = null;
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                WriteDiagnosticLog("Overlay recovery temizliği sırasında hata", cleanupEx);
+            }
+
+            try
+            {
+                _overlay = new RadialOverlayWindow(
+                    screenX,
+                    screenY,
+                    _currentConfig,
+                    _launcherService,
+                    _configService);
+                _overlay.MenuDismissed += OnOverlayMenuDismissed;
+                _overlay.ReopenAt(screenX, screenY);
+                WriteDiagnosticLog("Overlay açılış fallback ile toparlandı", rootException);
+                return true;
+            }
+            catch (Exception retryEx)
+            {
+                WriteDiagnosticLog("Overlay açılırken hata (yeniden oluşturma denemesi)", retryEx);
+                return false;
             }
         }
 
@@ -358,6 +405,7 @@ namespace RadialSek
             if (!IsLightIdleModeEnabled() ||
                 _overlay == null ||
                 _overlay.IsVisible ||
+                _isOverlayTransitionInProgress ||
                 _settingsWindow?.IsVisible == true)
             {
                 return;
@@ -373,11 +421,12 @@ namespace RadialSek
 
         private void EnterLightIdleMode()
         {
-            if (_overlay == null || _overlay.IsVisible)
+            if (_overlay == null || _overlay.IsVisible || _isOverlayTransitionInProgress)
             {
                 return;
             }
 
+            _overlay.ReleaseInputFailSafe("LightIdleMode");
             _overlay.MenuDismissed -= OnOverlayMenuDismissed;
             _overlay.DisposeWindow();
             _overlay = null;
@@ -455,3 +504,4 @@ namespace RadialSek
         private static extern bool EmptyWorkingSet(IntPtr hProcess);
     }
 }
+

@@ -69,6 +69,12 @@ namespace RadialSek.Services
             config.Audio.UiVolume = ClampUnitVolume(config.Audio.UiVolume, 0.86);
             config.Audio.HoverVolume = ClampUnitVolume(config.Audio.HoverVolume, 0.78);
             config.Audio.NotificationVolume = ClampUnitVolume(config.Audio.NotificationVolume, 0.82);
+            config.Tools ??= new ToolsSettings();
+            config.Tools.Alarm ??= new AlarmToolSettings();
+            config.Tools.Stopwatch ??= new StopwatchToolSettings();
+            config.Tools.ShutdownTimer ??= new ShutdownTimerToolSettings();
+            config.Tools.Alarm.DueNotificationSoundPath ??= string.Empty;
+            config.Tools.Alarm.DueNotificationSoundVolume = ClampUnitVolume(config.Tools.Alarm.DueNotificationSoundVolume, 0.9);
             if (config.Shortcuts == null || config.Shortcuts.Count == 0)
             {
                 config.Shortcuts = CreateDefaultShortcuts();

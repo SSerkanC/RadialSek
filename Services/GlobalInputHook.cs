@@ -24,6 +24,8 @@ namespace RadialSek.Services
         private const int VkShift = 0x10;
         private const int VkLWin = 0x5B;
         private const int VkRWin = 0x5C;
+        private static readonly TimeSpan MouseDoubleClickThreshold = TimeSpan.FromMilliseconds(360);
+        private const int MouseDoubleClickMaxDistancePixels = 18;
 
         private readonly HookProc _mouseProc;
         private readonly HookProc _keyboardProc;
@@ -33,6 +35,10 @@ namespace RadialSek.Services
         private DateTime _lastActivationUtc = DateTime.MinValue;
         private bool _programEnabled = true;
         private readonly HashSet<string> _suppressedMouseUpTriggers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private DateTime _lastMiddleMouseDownUtc = DateTime.MinValue;
+        private int _lastMiddleMouseDownX;
+        private int _lastMiddleMouseDownY;
+        private bool _hasLastMiddleMouseDown;
 
         public event EventHandler<ActivationEventArgs>? ActivationRequested;
 
@@ -47,6 +53,7 @@ namespace RadialSek.Services
             _shortcuts = (shortcuts == null || shortcuts.Count == 0
                     ? new List<ActivationShortcut> { new ActivationShortcut() }
                     : shortcuts.Select(x => x.Clone()).ToList());
+            ResetMiddleMouseDoubleState();
         }
 
         public void SetProgramEnabled(bool enabled)
@@ -103,7 +110,7 @@ namespace RadialSek.Services
             }
 
             var hookStruct = Marshal.PtrToStructure<MsllHookStruct>(lParam);
-            if (TryActivate(trigger, hookStruct.pt.x, hookStruct.pt.y))
+            if (TryActivateMouseTrigger(trigger, hookStruct.pt.x, hookStruct.pt.y))
             {
                 _suppressedMouseUpTriggers.Add(trigger);
                 return (IntPtr)1;
@@ -164,6 +171,57 @@ namespace RadialSek.Services
             return false;
         }
 
+        private bool TryActivateMouseTrigger(string trigger, double x, double y)
+        {
+            if (string.Equals(trigger, ActivationShortcut.TriggerMiddleMouse, StringComparison.OrdinalIgnoreCase))
+            {
+                var isDoubleClick = IsMiddleMouseDoubleClick(x, y);
+                TrackMiddleMouseDown(x, y);
+                if (isDoubleClick && TryActivate(ActivationShortcut.TriggerMiddleMouseDouble, x, y))
+                {
+                    ResetMiddleMouseDoubleState();
+                    return true;
+                }
+            }
+
+            return TryActivate(trigger, x, y);
+        }
+
+        private bool IsMiddleMouseDoubleClick(double x, double y)
+        {
+            if (!_hasLastMiddleMouseDown)
+            {
+                return false;
+            }
+
+            var nowUtc = DateTime.UtcNow;
+            if (nowUtc - _lastMiddleMouseDownUtc > MouseDoubleClickThreshold)
+            {
+                return false;
+            }
+
+            var dx = Math.Abs(x - _lastMiddleMouseDownX);
+            var dy = Math.Abs(y - _lastMiddleMouseDownY);
+            return dx <= MouseDoubleClickMaxDistancePixels &&
+                   dy <= MouseDoubleClickMaxDistancePixels;
+        }
+
+        private void TrackMiddleMouseDown(double x, double y)
+        {
+            _lastMiddleMouseDownUtc = DateTime.UtcNow;
+            _lastMiddleMouseDownX = (int)Math.Round(x);
+            _lastMiddleMouseDownY = (int)Math.Round(y);
+            _hasLastMiddleMouseDown = true;
+        }
+
+        private void ResetMiddleMouseDoubleState()
+        {
+            _lastMiddleMouseDownUtc = DateTime.MinValue;
+            _lastMiddleMouseDownX = 0;
+            _lastMiddleMouseDownY = 0;
+            _hasLastMiddleMouseDown = false;
+        }
+
         private static bool ModifiersMatch(ActivationShortcut shortcut)
         {
             var ctrl = IsPressed(VkControl);
@@ -181,12 +239,12 @@ namespace RadialSek.Services
         {
             if (wParam == (IntPtr)WmMButtonDown)
             {
-                return "MiddleMouse";
+                return ActivationShortcut.TriggerMiddleMouse;
             }
 
             if (wParam == (IntPtr)WmRButtonDown)
             {
-                return "RightMouse";
+                return ActivationShortcut.TriggerRightMouse;
             }
 
             if (wParam != (IntPtr)WmXButtonDown)
@@ -196,8 +254,8 @@ namespace RadialSek.Services
 
             var hookStruct = Marshal.PtrToStructure<MsllHookStruct>(lParam);
             var buttonData = (hookStruct.mouseData >> 16) & 0xffff;
-            return buttonData == 1 ? "XButton1" :
-                   buttonData == 2 ? "XButton2" :
+            return buttonData == 1 ? ActivationShortcut.TriggerXButton1 :
+                   buttonData == 2 ? ActivationShortcut.TriggerXButton2 :
                    null;
         }
 
@@ -205,12 +263,12 @@ namespace RadialSek.Services
         {
             if (wParam == (IntPtr)WmMButtonUp)
             {
-                return "MiddleMouse";
+                return ActivationShortcut.TriggerMiddleMouse;
             }
 
             if (wParam == (IntPtr)WmRButtonUp)
             {
-                return "RightMouse";
+                return ActivationShortcut.TriggerRightMouse;
             }
 
             if (wParam != (IntPtr)WmXButtonUp)
@@ -220,8 +278,8 @@ namespace RadialSek.Services
 
             var hookStruct = Marshal.PtrToStructure<MsllHookStruct>(lParam);
             var buttonData = (hookStruct.mouseData >> 16) & 0xffff;
-            return buttonData == 1 ? "XButton1" :
-                   buttonData == 2 ? "XButton2" :
+            return buttonData == 1 ? ActivationShortcut.TriggerXButton1 :
+                   buttonData == 2 ? ActivationShortcut.TriggerXButton2 :
                    null;
         }
 

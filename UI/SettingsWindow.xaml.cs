@@ -43,12 +43,15 @@ namespace RadialSek.UI
         private double _menuBackdropBlurStrengthScale = 1.0;
         private AudioSettings _audioSettings = new AudioSettings();
         private WeatherSettings _weatherSettings = new WeatherSettings();
+        private ToolsSettings _toolsSettings = new ToolsSettings();
         private MenuItemConfig? _editingItem;
         private string _selectedSectionKey = "general";
         private readonly Dictionary<string, FrameworkElement> _sectionMap = new Dictionary<string, FrameworkElement>(StringComparer.OrdinalIgnoreCase);
         private readonly List<Button> _navigationButtons = new List<Button>();
         private bool _isBinding;
         private readonly DispatcherTimer _previewTimer;
+        private readonly DispatcherTimer _mouseShortcutCaptureTimer;
+        private ActivationShortcut? _pendingMouseShortcut;
         private const string DefaultCategoryStripFontColor = "#FAFCFF";
         private static readonly SolidColorBrush InactiveTabHoverBrush = CreateFrozenBrush(Color.FromRgb(26, 31, 38));
         private static readonly SolidColorBrush DeleteTabHoverBrush = CreateFrozenBrush(Color.FromArgb(50, 255, 68, 68));
@@ -80,6 +83,11 @@ namespace RadialSek.UI
                 _previewTimer.Stop();
                 RenderPreview();
             };
+            _mouseShortcutCaptureTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(320)
+            };
+            _mouseShortcutCaptureTimer.Tick += OnMouseShortcutCaptureTimerTick;
 
             var config = _configService.LoadConfig();
             _features = config.Features?.Clone() ?? new MenuFeatures();
@@ -95,6 +103,7 @@ namespace RadialSek.UI
             _menuBackdropBlurStrengthScale = Math.Max(0.4, Math.Min(2.5, config.MenuBackdropBlurStrengthScale <= 0 ? 1.0 : config.MenuBackdropBlurStrengthScale));
             _audioSettings = config.Audio?.Clone() ?? new AudioSettings();
             _weatherSettings = config.Weather?.Clone() ?? new WeatherSettings();
+            _toolsSettings = config.Tools?.Clone() ?? new ToolsSettings();
             _soundManager.ApplySettings(_audioSettings);
             _pages = new ObservableCollection<MenuPageConfig>(
                 (config.Pages ?? new List<MenuPageConfig>()).Select(page => new MenuPageConfig
@@ -161,6 +170,14 @@ namespace RadialSek.UI
             UiVolumeSlider.Value = ClampUnit(_audioSettings.UiVolume, 0.86);
             HoverVolumeSlider.Value = ClampUnit(_audioSettings.HoverVolume, 0.78);
             NotificationVolumeSlider.Value = ClampUnit(_audioSettings.NotificationVolume, 0.82);
+            AlarmToolEnabledCheckBox.IsChecked = _toolsSettings.Alarm.EnableAlarmTool;
+            AlarmSoundEnabledCheckBox.IsChecked = _toolsSettings.Alarm.EnableDueNotificationSound;
+            AlarmSoundPathTextBox.Text = _toolsSettings.Alarm.DueNotificationSoundPath ?? string.Empty;
+            AlarmSoundVolumeSlider.Value = ClampUnit(_toolsSettings.Alarm.DueNotificationSoundVolume, 0.9);
+            StopwatchToolEnabledCheckBox.IsChecked = _toolsSettings.Stopwatch.EnableStopwatchTool;
+            StopwatchBackgroundRunCheckBox.IsChecked = _toolsSettings.Stopwatch.KeepRunningInBackground;
+            ShutdownTimerToolEnabledCheckBox.IsChecked = _toolsSettings.ShutdownTimer.EnableShutdownTimerTool;
+            ShutdownTimerShowCountdownCheckBox.IsChecked = _toolsSettings.ShutdownTimer.ShowCenterCountdown;
 
             OpenShortcutCaptureButton.Content = GetShortcut(ActivationShortcut.OpenMenuShortcutId).GetDisplayText();
             ToggleShortcutCaptureButton.Content = GetShortcut(ActivationShortcut.ToggleProgramShortcutId).GetDisplayText();
@@ -202,6 +219,8 @@ namespace RadialSek.UI
             UpdateStripFontColorButton();
             UpdateAudioValueTexts();
             UpdateAudioControlsUi();
+            UpdateToolsValueTexts();
+            UpdateToolsControlsUi();
             InitializeNavigation();
             _isBinding = false;
 
@@ -218,7 +237,11 @@ namespace RadialSek.UI
             RebuildPageTabs();
             RequestPreviewRender();
             Loaded += (_, __) => _soundManager.Play(SoundCue.UiWindowOpen);
-            Closed += (_, __) => _soundManager.Play(SoundCue.UiWindowClose);
+            Closed += (_, __) =>
+            {
+                CancelPendingMouseShortcutCapture();
+                _soundManager.Play(SoundCue.UiWindowClose);
+            };
         }
 
         private void OnTreeSelectionChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -451,12 +474,21 @@ namespace RadialSek.UI
             _categoryStripFontColor = DefaultCategoryStripFontColor;
             _audioSettings = new AudioSettings();
             _weatherSettings = new WeatherSettings();
+            _toolsSettings = new ToolsSettings();
             SoundsEnabledCheckBox.IsChecked = _audioSettings.EnableSounds;
             SilentModeCheckBox.IsChecked = _audioSettings.SilentMode;
             MasterVolumeSlider.Value = _audioSettings.MasterVolume;
             UiVolumeSlider.Value = _audioSettings.UiVolume;
             HoverVolumeSlider.Value = _audioSettings.HoverVolume;
             NotificationVolumeSlider.Value = _audioSettings.NotificationVolume;
+            AlarmToolEnabledCheckBox.IsChecked = _toolsSettings.Alarm.EnableAlarmTool;
+            AlarmSoundEnabledCheckBox.IsChecked = _toolsSettings.Alarm.EnableDueNotificationSound;
+            AlarmSoundPathTextBox.Text = _toolsSettings.Alarm.DueNotificationSoundPath;
+            AlarmSoundVolumeSlider.Value = _toolsSettings.Alarm.DueNotificationSoundVolume;
+            StopwatchToolEnabledCheckBox.IsChecked = _toolsSettings.Stopwatch.EnableStopwatchTool;
+            StopwatchBackgroundRunCheckBox.IsChecked = _toolsSettings.Stopwatch.KeepRunningInBackground;
+            ShutdownTimerToolEnabledCheckBox.IsChecked = _toolsSettings.ShutdownTimer.EnableShutdownTimerTool;
+            ShutdownTimerShowCountdownCheckBox.IsChecked = _toolsSettings.ShutdownTimer.ShowCenterCountdown;
             WeatherAnimationsEnabledCheckBox.IsChecked = _weatherSettings.EnableAnimations;
             WeatherUseLiveDataCheckBox.IsChecked = _weatherSettings.UseLiveData;
             WeatherManualPresetComboBox.SelectedValue = WeatherSettingsService.ResolveWeatherPresetKey(_weatherSettings.ManualPreset);
@@ -478,6 +510,8 @@ namespace RadialSek.UI
             UpdateStripFontColorButton();
             UpdateAudioValueTexts();
             UpdateAudioControlsUi();
+            UpdateToolsValueTexts();
+            UpdateToolsControlsUi();
             UpdateWeatherValueTexts();
             UpdateWeatherControlsUi();
             _soundManager.ApplySettings(_audioSettings);
@@ -517,10 +551,12 @@ namespace RadialSek.UI
             _weatherSettings.AnimationSpeedScale = WeatherSettingsService.ClampSpeedScale(WeatherSpeedSlider.Value);
             _weatherSettings.AnimationIntensityScale = WeatherSettingsService.ClampIntensityScale(WeatherIntensitySlider.Value);
             ApplyAudioPanelValuesToModel();
+            ApplyToolsPanelValuesToModel();
         }
 
         private void OnOpenShortcutCaptureClicked(object sender, RoutedEventArgs e)
         {
+            CancelPendingMouseShortcutCapture();
             _capturingShortcutId = ActivationShortcut.OpenMenuShortcutId;
             OpenShortcutCaptureButton.Content = "Kisayol bekleniyor...";
             Keyboard.Focus(this);
@@ -529,6 +565,7 @@ namespace RadialSek.UI
 
         private void OnToggleShortcutCaptureClicked(object sender, RoutedEventArgs e)
         {
+            CancelPendingMouseShortcutCapture();
             _capturingShortcutId = ActivationShortcut.ToggleProgramShortcutId;
             ToggleShortcutCaptureButton.Content = "Kisayol bekleniyor...";
             Keyboard.Focus(this);
@@ -537,6 +574,7 @@ namespace RadialSek.UI
 
         private void OnTargetingShortcutCaptureClicked(object sender, RoutedEventArgs e)
         {
+            CancelPendingMouseShortcutCapture();
             _capturingShortcutId = ActivationShortcut.TargetingModeShortcutId;
             TargetingShortcutCaptureButton.Content = "Kisayol bekleniyor...";
             Keyboard.Focus(this);
@@ -548,6 +586,7 @@ namespace RadialSek.UI
             var key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (key == Key.Escape)
             {
+                CancelPendingMouseShortcutCapture();
                 _capturingShortcutId = null;
                 e.Handled = true;
                 Close();
@@ -558,6 +597,8 @@ namespace RadialSek.UI
             {
                 return;
             }
+
+            CancelPendingMouseShortcutCapture();
 
             if (_capturingShortcutId == ActivationShortcut.TargetingModeShortcutId)
             {
@@ -603,10 +644,10 @@ namespace RadialSek.UI
 
             var trigger = e.ChangedButton switch
             {
-                MouseButton.Middle => "MiddleMouse",
-                MouseButton.Right => "RightMouse",
-                MouseButton.XButton1 => "XButton1",
-                MouseButton.XButton2 => "XButton2",
+                MouseButton.Middle => ActivationShortcut.TriggerMiddleMouse,
+                MouseButton.Right => ActivationShortcut.TriggerRightMouse,
+                MouseButton.XButton1 => ActivationShortcut.TriggerXButton1,
+                MouseButton.XButton2 => ActivationShortcut.TriggerXButton2,
                 _ => null
             };
 
@@ -625,12 +666,87 @@ namespace RadialSek.UI
                 ShortcutId = _capturingShortcutId
             };
 
+            if (string.Equals(trigger, ActivationShortcut.TriggerMiddleMouse, StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(_capturingShortcutId, ActivationShortcut.TargetingModeShortcutId, StringComparison.OrdinalIgnoreCase))
+                {
+                    CancelPendingMouseShortcutCapture();
+                    ApplyCapturedShortcut(shortcut);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (_pendingMouseShortcut != null &&
+                    string.Equals(_pendingMouseShortcut.ShortcutId, shortcut.ShortcutId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(_pendingMouseShortcut.Trigger, ActivationShortcut.TriggerMiddleMouse, StringComparison.OrdinalIgnoreCase))
+                {
+                    CancelPendingMouseShortcutCapture();
+                    shortcut.Trigger = ActivationShortcut.TriggerMiddleMouseDouble;
+                    ApplyCapturedShortcut(shortcut);
+                    e.Handled = true;
+                    return;
+                }
+
+                _pendingMouseShortcut = shortcut;
+                _mouseShortcutCaptureTimer.Stop();
+                _mouseShortcutCaptureTimer.Start();
+                UpdatePendingMouseCaptureButtonState();
+                e.Handled = true;
+                return;
+            }
+
+            CancelPendingMouseShortcutCapture();
             ApplyCapturedShortcut(shortcut);
             e.Handled = true;
         }
 
+        private void OnMouseShortcutCaptureTimerTick(object? sender, EventArgs e)
+        {
+            _mouseShortcutCaptureTimer.Stop();
+            if (_pendingMouseShortcut == null || _capturingShortcutId == null)
+            {
+                _pendingMouseShortcut = null;
+                return;
+            }
+
+            if (!string.Equals(_pendingMouseShortcut.ShortcutId, _capturingShortcutId, StringComparison.OrdinalIgnoreCase))
+            {
+                _pendingMouseShortcut = null;
+                return;
+            }
+
+            var shortcut = _pendingMouseShortcut;
+            _pendingMouseShortcut = null;
+            ApplyCapturedShortcut(shortcut);
+        }
+
+        private void CancelPendingMouseShortcutCapture()
+        {
+            _mouseShortcutCaptureTimer.Stop();
+            _pendingMouseShortcut = null;
+        }
+
+        private void UpdatePendingMouseCaptureButtonState()
+        {
+            if (_capturingShortcutId == ActivationShortcut.ToggleProgramShortcutId)
+            {
+                ToggleShortcutCaptureButton.Content = "Tek tik: orta tus, cift tik: orta tus x2";
+                return;
+            }
+
+            if (_capturingShortcutId == ActivationShortcut.TargetingModeShortcutId)
+            {
+                TargetingShortcutCaptureButton.Content = "Tek tik: orta tus, cift tik: orta tus x2";
+                return;
+            }
+
+            OpenShortcutCaptureButton.Content = "Tek tik: orta tus, cift tik: orta tus x2";
+        }
+
         private void ApplyCapturedShortcut(ActivationShortcut shortcut)
         {
+            CancelPendingMouseShortcutCapture();
+
             if (shortcut.ShortcutId == ActivationShortcut.ToggleProgramShortcutId)
             {
                 ReplaceShortcut(shortcut);
@@ -910,6 +1026,139 @@ namespace RadialSek.UI
             _audioSettings.NotificationVolume = ClampUnit(NotificationVolumeSlider.Value, 0.82);
         }
 
+        private void OnToolsControlChanged(object sender, RoutedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            UpdateToolsControlsUi();
+            ApplyToolsPanelValuesToModel();
+            if (sender is CheckBox checkBox)
+            {
+                PlayUiSound(checkBox.IsChecked == true ? SoundCue.UiToggleOn : SoundCue.UiToggleOff);
+            }
+        }
+
+        private void OnAlarmSoundPathTextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            ApplyToolsPanelValuesToModel();
+        }
+
+        private void OnAlarmSoundVolumeSliderValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            UpdateToolsValueTexts();
+            ApplyToolsPanelValuesToModel();
+        }
+
+        private void OnBrowseAlarmSoundClicked(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Alarm ses dosyasi sec",
+                Filter = "Ses Dosyalari|*.wav;*.mp3;*.wma;*.aac;*.m4a|Tum Dosyalar|*.*",
+                CheckFileExists = true,
+                CheckPathExists = true,
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            _isBinding = true;
+            AlarmSoundPathTextBox.Text = dialog.FileName;
+            _isBinding = false;
+            ApplyToolsPanelValuesToModel();
+            UpdateToolsControlsUi();
+            StatusTextBlock.Text = "Alarm ses dosyasi secildi.";
+            PlayUiSound(SoundCue.UiSelect);
+        }
+
+        private void OnClearAlarmSoundClicked(object sender, RoutedEventArgs e)
+        {
+            _isBinding = true;
+            AlarmSoundPathTextBox.Text = string.Empty;
+            _isBinding = false;
+            ApplyToolsPanelValuesToModel();
+            UpdateToolsControlsUi();
+            StatusTextBlock.Text = "Alarm ses dosyasi temizlendi.";
+            PlayUiSound(SoundCue.UiClick);
+        }
+
+        private void OnTestAlarmSoundClicked(object sender, RoutedEventArgs e)
+        {
+            ApplyToolsPanelValuesToModel();
+            if (!_toolsSettings.Alarm.EnableDueNotificationSound)
+            {
+                StatusTextBlock.Text = "Alarm sesi kapali. Once sesi acin.";
+                PlayUiSound(SoundCue.Warning);
+                return;
+            }
+
+            var playedCustomSound = AlarmNotificationSoundService.TryPlay(
+                _toolsSettings.Alarm.DueNotificationSoundPath,
+                _toolsSettings.Alarm.DueNotificationSoundVolume);
+            if (!playedCustomSound)
+            {
+                PlayUiSound(SoundCue.Notification);
+            }
+
+            StatusTextBlock.Text = playedCustomSound
+                ? "Alarm sesi test edildi."
+                : "Ozel ses bulunamadi, varsayilan bildirim sesi calindi.";
+        }
+
+        private void UpdateToolsValueTexts()
+        {
+            AlarmSoundVolumeValueTextBlock.Text = FormatVolumePercentage(AlarmSoundVolumeSlider.Value);
+        }
+
+        private void UpdateToolsControlsUi()
+        {
+            var alarmToolEnabled = AlarmToolEnabledCheckBox.IsChecked == true;
+            var alarmSoundEnabled = alarmToolEnabled && AlarmSoundEnabledCheckBox.IsChecked == true;
+            AlarmSoundEnabledCheckBox.IsEnabled = alarmToolEnabled;
+            AlarmSoundPathTextBox.IsEnabled = alarmSoundEnabled;
+            BrowseAlarmSoundButton.IsEnabled = alarmSoundEnabled;
+            ClearAlarmSoundButton.IsEnabled = alarmSoundEnabled;
+            AlarmSoundVolumeSlider.IsEnabled = alarmSoundEnabled;
+            TestAlarmSoundButton.IsEnabled = alarmSoundEnabled;
+            AlarmSoundPathTextBox.Opacity = alarmSoundEnabled ? 1.0 : 0.55;
+            AlarmSoundVolumeSlider.Opacity = alarmSoundEnabled ? 1.0 : 0.55;
+            AlarmSoundHintTextBlock.Opacity = alarmSoundEnabled ? 0.95 : 0.62;
+            var stopwatchToolEnabled = StopwatchToolEnabledCheckBox.IsChecked == true;
+            StopwatchBackgroundRunCheckBox.IsEnabled = stopwatchToolEnabled;
+            StopwatchBackgroundRunCheckBox.Opacity = stopwatchToolEnabled ? 1.0 : 0.55;
+            var shutdownToolEnabled = ShutdownTimerToolEnabledCheckBox.IsChecked == true;
+            ShutdownTimerShowCountdownCheckBox.IsEnabled = shutdownToolEnabled;
+            ShutdownTimerShowCountdownCheckBox.Opacity = shutdownToolEnabled ? 1.0 : 0.55;
+        }
+
+        private void ApplyToolsPanelValuesToModel()
+        {
+            _toolsSettings.Alarm.EnableAlarmTool = AlarmToolEnabledCheckBox.IsChecked == true;
+            _toolsSettings.Alarm.EnableDueNotificationSound = AlarmSoundEnabledCheckBox.IsChecked == true;
+            _toolsSettings.Alarm.DueNotificationSoundPath = AlarmSoundPathTextBox.Text?.Trim() ?? string.Empty;
+            _toolsSettings.Alarm.DueNotificationSoundVolume = ClampUnit(AlarmSoundVolumeSlider.Value, 0.9);
+            _toolsSettings.Stopwatch.EnableStopwatchTool = StopwatchToolEnabledCheckBox.IsChecked == true;
+            _toolsSettings.Stopwatch.KeepRunningInBackground = StopwatchBackgroundRunCheckBox.IsChecked == true;
+            _toolsSettings.ShutdownTimer.EnableShutdownTimerTool = ShutdownTimerToolEnabledCheckBox.IsChecked == true;
+            _toolsSettings.ShutdownTimer.ShowCenterCountdown = ShutdownTimerShowCountdownCheckBox.IsChecked == true;
+        }
+
         private static string FormatVolumePercentage(double value)
         {
             return $"{Math.Round(Math.Max(0.0, Math.Min(1.0, value)) * 100):0}%";
@@ -1032,6 +1281,7 @@ namespace RadialSek.UI
             _navigationButtons.Add(NavAppearanceButton);
             _navigationButtons.Add(NavRingsButton);
             _navigationButtons.Add(NavWeatherButton);
+            _navigationButtons.Add(NavToolsButton);
             _navigationButtons.Add(NavMenuButton);
 
             _sectionMap.Clear();
@@ -1041,6 +1291,7 @@ namespace RadialSek.UI
             _sectionMap["appearance"] = SectionAppearancePanel;
             _sectionMap["rings"] = SectionRingsPanel;
             _sectionMap["weather"] = SectionWeatherPanel;
+            _sectionMap["tools"] = SectionToolsPanel;
             _sectionMap["menu"] = SectionMenuPanel;
 
             UpdateNavigationSelection();
@@ -1166,7 +1417,8 @@ namespace RadialSek.UI
                 Features = _features.Clone(),
                 Weather = _weatherSettings.Clone(),
                 Shortcuts = _shortcuts.Select(x => x.Clone()).ToList(),
-                Audio = _audioSettings.Clone()
+                Audio = _audioSettings.Clone(),
+                Tools = _toolsSettings.Clone()
             };
             config.Pages.Clear();
 

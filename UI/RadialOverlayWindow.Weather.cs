@@ -738,7 +738,7 @@ namespace RadialSek.UI
             var minTop = _centerY - (centerSize * 0.46);
             var maxTop = _centerY - (centerSize * 0.10) - labelHeight;
             Canvas.SetTop(panel, Math.Max(minTop, Math.Min(labelTop, maxTop)));
-            RegisterWeatherVisual(panel, WeatherLightningZIndex + 2);
+            RegisterWeatherVisual(panel, WeatherConditionLabelZIndex);
 
             var fadeOut = new DoubleAnimationUsingKeyFrames
             {

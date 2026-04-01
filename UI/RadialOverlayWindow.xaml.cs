@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Animation;
@@ -231,6 +232,7 @@ namespace RadialSek.UI
         private readonly ActivationShortcut _targetingShortcut;
         private readonly OpenMeteoWeatherService _weatherService;
         private readonly WeatherSettings _weatherSettings;
+        private readonly ToolsSettings _toolsSettings;
         private readonly Random _weatherRandom = new Random();
         private readonly List<List<MenuItemConfig>> _pages = new List<List<MenuItemConfig>>();
         private readonly List<ShapePath> _segments = new List<ShapePath>();
@@ -280,6 +282,7 @@ namespace RadialSek.UI
         private readonly DispatcherTimer _monochromeBackdropCaptureTimer;
         private readonly DispatcherTimer _monochromeRingSnapshotTimer;
         private readonly DispatcherTimer _centerClockTimer;
+        private readonly DispatcherTimer _centerCountdownRingTimer;
         private static readonly SolidColorBrush BackdropHitTestBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0));
         private static readonly System.Windows.Media.FontFamily CenterTitleDefaultFontFamily = new System.Windows.Media.FontFamily("Segoe UI Semibold");
         private static readonly DoubleCollection MainGhostDashArray = CreateFrozenDoubleCollection(4, 4);
@@ -321,19 +324,31 @@ namespace RadialSek.UI
         private TextBlock? _centerBreadcrumb;
         private TextBlock? _centerTitle;
         private TextBlock? _centerSubtitle;
+        private TextBlock? _centerAlarmCountdown;
         private double _centerTitleBaseFontSize;
         private bool _isCenterClockTypographyActive;
         private DateTime? _shutdownCountdownTargetUtc;
+        private DateTime? _shutdownCountdownStartUtc;
+        private TimeSpan? _shutdownCountdownDuration;
+        private static readonly Stopwatch _centerStopwatch = new Stopwatch();
+        private static bool _isStopwatchModeActive;
+        private static readonly object AlarmScheduleSync = new object();
+        private static DateTime? _alarmTargetUtc;
+        private static DateTime? _alarmStartUtc;
+        private static TimeSpan? _alarmDuration;
+        private static CancellationTokenSource? _alarmCountdownCts;
         private Grid? _utilityDockButton;
         private Border? _utilityDockButtonCore;
         private FrameworkElement? _weatherCloudVisual;
         private FrameworkElement? _weatherCloudRearVisual;
         private Border? _centerPanel;
+        private Border? _centerContentPanel;
         private Ellipse? _centerAccentRing;
         private System.Windows.Media.Brush? _centerAccentRingBaseStroke;
         private double _centerAccentRingBaseOpacity;
         private double _centerAccentRingBaseStrokeThickness;
         private Ellipse? _centerAccentRingSolidOverlay;
+        private ShapePath? _centerCountdownRing;
         private Ellipse? _outerAccentRing;
         private System.Windows.Media.Brush? _outerAccentRingBaseStroke;
         private double _outerAccentRingBaseOpacity;
@@ -361,6 +376,8 @@ namespace RadialSek.UI
         private DateTime _ignoreBackdropMouseUntilUtc;
         private bool _isMonochromeSnapshotTransitionRunning;
         private bool _hasPendingMonochromeSnapshotRequest;
+        private bool _isCenterCountdownRingActive;
+        private DateTime _centerCountdownRingRevealNotBeforeUtc;
         private Ellipse? _monochromeSnapshotCenterRing;
         private Ellipse? _monochromeSnapshotOuterRing;
         private double _monochromeSnapshotCenterRestoreOpacity;
@@ -391,6 +408,9 @@ namespace RadialSek.UI
         private static readonly TimeSpan MonochromeBackdropStartDelay = TimeSpan.FromSeconds(1);
         private static readonly TimeSpan HoverOrbitGuideTransitionDuration = TimeSpan.FromMilliseconds(140);
         private static readonly TimeSpan HoverOrbitMinUpdateInterval = TimeSpan.FromMilliseconds(14);
+        private static readonly TimeSpan CenterCountdownRingOpenRevealDelay = TimeSpan.FromMilliseconds(110);
+        private static readonly TimeSpan CenterCountdownRingRefreshInterval = TimeSpan.FromMilliseconds(90);
+        private static readonly TimeSpan CenterCountdownRingFadeInDuration = TimeSpan.FromMilliseconds(180);
         private static readonly TimeSpan WeatherCloudSlideDuration = TimeSpan.FromMilliseconds(6800);
         private static readonly TimeSpan WeatherCloudFadeInDuration = TimeSpan.FromMilliseconds(1200);
         private static readonly TimeSpan WeatherLoopDuration = TimeSpan.FromMilliseconds(3000);
@@ -400,6 +420,7 @@ namespace RadialSek.UI
         private static readonly SineEase WeatherCloudFadeInEase = FreezeIfPossible(new SineEase { EasingMode = EasingMode.EaseOut });
         private static readonly SineEase WeatherLabelFadeInEase = FreezeIfPossible(new SineEase { EasingMode = EasingMode.EaseOut });
         private static readonly SineEase WeatherLabelFadeOutEase = FreezeIfPossible(new SineEase { EasingMode = EasingMode.EaseIn });
+        private static readonly SineEase CenterCountdownRingFadeInEase = FreezeIfPossible(new SineEase { EasingMode = EasingMode.EaseOut });
         private const double HoverOrbitPointerScale = 1.5;
         private const double HoverOrbitAngleSnap = 0.5;
         private const double SubmenuHoverScale = 1.08;
@@ -421,6 +442,10 @@ namespace RadialSek.UI
         private const int WeatherFogZIndex = 198;
         private const int WeatherCelestialZIndex = 202;
         private const int WeatherLightningZIndex = 240;
+        private const int CenterBackgroundZIndex = WeatherFogZIndex - 2;
+        private const int CenterAccentRingZIndex = CenterBackgroundZIndex + 1;
+        private const int CenterContentZIndex = WeatherLightningZIndex + 10;
+        private const int WeatherConditionLabelZIndex = CenterContentZIndex + 2;
         private const int WmNcHitTest = 0x0084;
         private const int HtTransparent = -1;
         private const int HtClient = 1;
@@ -434,6 +459,10 @@ namespace RadialSek.UI
         private const int VkShift = 0x10;
         private const int VkControl = 0x11;
         private const int VkMenu = 0x12;
+        private const int VkMButton = 0x04;
+        private const int VkXButton1 = 0x05;
+        private const int VkXButton2 = 0x06;
+        private const int VkRButton = 0x02;
         private const int VkLWin = 0x5B;
         private const int VkRWin = 0x5C;
         private const int OdakKaskadiCenterAccentHoldMs = 1000;
@@ -446,6 +475,7 @@ namespace RadialSek.UI
         private const int OverlayContextMenuZIndex = 1200;
         private const string UtilityDockTrayTag = "UtilityDockTray";
         private const string UtilityShutdownTrayTag = "UtilityShutdownTray";
+        private const string UtilityAlarmTrayTag = "UtilityAlarmTray";
 
         static RadialOverlayWindow()
         {
@@ -481,6 +511,7 @@ namespace RadialSek.UI
             _targetingShortcut = config.TargetingShortcut?.Clone() ?? ActivationShortcut.CreateTargetingModeDefault();
             _weatherService = OpenMeteoWeatherService.Instance;
             _weatherSettings = config.Weather?.Clone() ?? new WeatherSettings();
+            _toolsSettings = config.Tools?.Clone() ?? new ToolsSettings();
             _theme = ThemePaletteService.Resolve(config.Theme);
             _dragHoverOpenTimer = new DispatcherTimer { Interval = DragHoverOpenDelay };
             _dragHoverOpenTimer.Tick += OnDragHoverOpenTimerTick;
@@ -500,6 +531,8 @@ namespace RadialSek.UI
             _monochromeRingSnapshotTimer.Tick += OnMonochromeRingSnapshotTimerTick;
             _centerClockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _centerClockTimer.Tick += OnCenterClockTimerTick;
+            _centerCountdownRingTimer = new DispatcherTimer { Interval = CenterCountdownRingRefreshInterval };
+            _centerCountdownRingTimer.Tick += OnCenterCountdownRingTimerTick;
             SourceInitialized += OnSourceInitialized;
             Deactivated += OnWindowDeactivated;
             NormalizeConfigPages(config);
@@ -514,6 +547,7 @@ namespace RadialSek.UI
                 _monochromeBackdropCaptureTimer.Stop();
                 _monochromeRingSnapshotTimer.Stop();
                 _centerClockTimer.Stop();
+                _centerCountdownRingTimer.Stop();
                 StopWeatherVisuals();
                 SetTargetingCursorHidden(false);
                 ForceReleaseInputState("Overlay kapatilirken fail-safe");
@@ -633,9 +667,18 @@ namespace RadialSek.UI
             var shouldPlayDismissSound = !_suppressNextDismissSound;
             _suppressNextDismissSound = false;
             var wasVisible = IsVisible;
+            var shouldPauseStopwatchOnDismiss =
+                _isStopwatchModeActive &&
+                _centerStopwatch.IsRunning &&
+                !_toolsSettings.Stopwatch.KeepRunningInBackground;
 
             try
             {
+                if (shouldPauseStopwatchOnDismiss)
+                {
+                    _centerStopwatch.Stop();
+                }
+
                 try
                 {
                     ResetTransientStateForReuse();
@@ -734,7 +777,61 @@ namespace RadialSek.UI
         {
             FlushPendingChanges();
             _persistChangesTimer.Stop();
+            ReleaseInputFailSafe("DisposeWindow");
+            try
+            {
+                ResetTransientStateForReuse();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (IsVisible)
+                {
+                    Hide();
+                }
+            }
+            catch
+            {
+            }
+
             Close();
+        }
+
+        public void ReleaseInputFailSafe(string context)
+        {
+            ForceReleaseInputState(context);
+            try
+            {
+                _isAltGuideActive = false;
+                SetTargetingCursorHidden(false);
+                HideAltGuideLine();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (_isEditModeEnabled)
+                {
+                    _isEditModeEnabled = false;
+                    FadeOutEditModeVisuals();
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                SetWindowClickThrough(false);
+            }
+            catch
+            {
+            }
         }
 
         public static void ReleaseIdleResources()
@@ -758,6 +855,9 @@ namespace RadialSek.UI
         {
             UpdateMonochromeBackdropLayer();
             UpdateBackdropInteractivity();
+            _centerCountdownRingRevealNotBeforeUtc = string.Equals(_openAnimationStyle, "None", StringComparison.OrdinalIgnoreCase)
+                ? DateTime.UtcNow
+                : DateTime.UtcNow + CenterCountdownRingOpenRevealDelay;
             Opacity = 1.0;
             RootCanvas.Opacity = 1.0;
             RootScaleTransform.ScaleX = 1.0;
@@ -772,7 +872,9 @@ namespace RadialSek.UI
             }
             _modifierPollTimer.Start();
             _centerClockTimer.Start();
+            _centerCountdownRingTimer.Start();
             RefreshIdleCenterTitleIfNeeded();
+            RefreshCenterCountdownRingVisual();
             UpdateEditModeClickThroughState();
 
             if (!string.Equals(_openAnimationStyle, "None", StringComparison.OrdinalIgnoreCase))
@@ -812,7 +914,9 @@ namespace RadialSek.UI
             _monochromeBackdropCaptureTimer.Stop();
             _monochromeRingSnapshotTimer.Stop();
             _centerClockTimer.Stop();
+            _centerCountdownRingTimer.Stop();
             StopWeatherVisuals();
+            _centerCountdownRingRevealNotBeforeUtc = DateTime.MinValue;
             _isMonochromeSnapshotTransitionRunning = false;
             _hasPendingMonochromeSnapshotRequest = false;
             _monochromeSnapshotCenterRing = null;
@@ -1148,21 +1252,54 @@ namespace RadialSek.UI
             }
 
             RefreshIdleCenterTitleIfNeeded();
+            RefreshCenterCountdownRingVisual();
         }
 
-        private void SetCenterTitleText(string text, bool useIdleClockTypography)
+        private void OnCenterCountdownRingTimerTick(object? sender, EventArgs e)
+        {
+            if (!IsVisible)
+            {
+                return;
+            }
+
+            RefreshCenterCountdownRingVisual();
+        }
+
+        private void SetCenterTitleText(string text, bool useIdleClockTypography, bool animate = true)
         {
             if (_centerTitle == null)
             {
                 return;
             }
 
+            var isTypographyModeChanging = _isCenterClockTypographyActive != useIdleClockTypography;
             ApplyCenterTitleTypography(useIdleClockTypography);
-            var isShutdownCountdownActive = _shutdownCountdownTargetUtc.HasValue && useIdleClockTypography;
-            _centerTitle.Foreground = isShutdownCountdownActive
-                ? GetCachedBrush(ResolveShutdownCountdownTitleColor())
-                : GetCachedBrush(_theme.TitleColor);
-            AnimateCenterText(_centerTitle, text);
+            var isStopwatchDisplayActive = _isStopwatchModeActive && useIdleClockTypography;
+            var isShutdownCountdownActive = _shutdownCountdownTargetUtc.HasValue &&
+                                            useIdleClockTypography &&
+                                            !_isStopwatchModeActive;
+            if (isStopwatchDisplayActive)
+            {
+                _centerTitle.Foreground = GetCachedBrush(ResolveStopwatchTitleColor());
+            }
+            else if (isShutdownCountdownActive)
+            {
+                _centerTitle.Foreground = GetCachedBrush(ResolveShutdownCountdownTitleColor());
+            }
+            else
+            {
+                _centerTitle.Foreground = GetCachedBrush(_theme.TitleColor);
+            }
+
+            var shouldAnimate = animate && !isTypographyModeChanging;
+            if (shouldAnimate)
+            {
+                AnimateCenterText(_centerTitle, text);
+            }
+            else
+            {
+                SetCenterTextBlockInstant(_centerTitle, text);
+            }
         }
 
         private void ApplyCenterTitleTypography(bool useIdleClockTypography)
@@ -1198,12 +1335,7 @@ namespace RadialSek.UI
                 return "X";
             }
 
-            if (TryGetShutdownCountdownDisplayText(out var countdownText))
-            {
-                return countdownText;
-            }
-
-            return DateTime.Now.ToString("HH:mm");
+            return GetIdleCenterDisplayText();
         }
 
         private bool ShouldShowIdleCenterClock()
@@ -1220,21 +1352,379 @@ namespace RadialSek.UI
         {
             if (!ShouldShowIdleCenterClock())
             {
+                SetCenterTextBlockInstantIfAvailable(_centerAlarmCountdown, string.Empty);
                 return;
+            }
+
+            SetCenterTitleText(GetIdleCenterDisplayText(), useIdleClockTypography: true, animate: false);
+            RefreshAlarmCountdownBadgeIfNeeded();
+        }
+
+        private string GetIdleCenterDisplayText()
+        {
+            if (_isStopwatchModeActive)
+            {
+                return FormatStopwatchElapsed(_centerStopwatch.Elapsed);
             }
 
             if (TryGetShutdownCountdownDisplayText(out var countdownText))
             {
-                SetCenterTitleText(countdownText, useIdleClockTypography: true);
+                return countdownText;
+            }
+
+            return DateTime.Now.ToString("HH:mm");
+        }
+
+        private static string FormatStopwatchElapsed(TimeSpan elapsed)
+        {
+            if (elapsed.TotalHours >= 1.0)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}:{1:00}:{2:00}",
+                    (int)elapsed.TotalHours,
+                    elapsed.Minutes,
+                    elapsed.Seconds);
+            }
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:00}:{1:00}",
+                (int)elapsed.TotalMinutes,
+                elapsed.Seconds);
+        }
+
+        private System.Windows.Media.Color ResolveStopwatchTitleColor()
+        {
+            var blended = BlendColors(_theme.SegmentActiveColor, _theme.CenterBorderColor, 0.52);
+            var accented = BlendColors(blended, Colors.Cyan, 0.38);
+            return System.Windows.Media.Color.FromArgb(244, accented.R, accented.G, accented.B);
+        }
+
+        private System.Windows.Media.Color ResolveAlarmCountdownColor()
+        {
+            var alarmAccent = System.Windows.Media.Color.FromRgb(255, 118, 158);
+            var blended = BlendColors(alarmAccent, _theme.CenterBorderColor, 0.22);
+            return System.Windows.Media.Color.FromArgb(244, blended.R, blended.G, blended.B);
+        }
+
+        private void RefreshCenterCountdownRingVisual()
+        {
+            if (_isOdakKaskadiAnimationActive || _centerAccentRing == null || _centerCountdownRing == null)
+            {
                 return;
             }
 
-            SetCenterTitleText(DateTime.Now.ToString("HH:mm"), useIdleClockTypography: true);
+            if (!TryGetActiveCenterCountdownProgress(out var remainingRatio, out var ringColor))
+            {
+                RestoreCenterAccentRingVisual();
+                return;
+            }
+
+            if (!_isCenterCountdownRingActive &&
+                _centerCountdownRingRevealNotBeforeUtc > DateTime.UtcNow)
+            {
+                RestoreCenterAccentRingVisual();
+                return;
+            }
+
+            ApplyCenterCountdownRingVisual(remainingRatio, ringColor);
+        }
+
+        private bool TryGetActiveCenterCountdownProgress(out double remainingRatio, out System.Windows.Media.Color ringColor)
+        {
+            remainingRatio = 0.0;
+            ringColor = default;
+            var nowUtc = DateTime.UtcNow;
+
+            var hasShutdown = TryGetShutdownCountdownProgress(nowUtc, out var shutdownRemaining, out var shutdownRatio);
+            var hasAlarm = TryGetAlarmCountdownProgress(nowUtc, out var alarmRemaining, out var alarmRatio);
+
+            if (!hasShutdown && !hasAlarm)
+            {
+                return false;
+            }
+
+            if (hasShutdown && (!hasAlarm || shutdownRemaining <= alarmRemaining))
+            {
+                remainingRatio = shutdownRatio;
+                ringColor = ResolveShutdownCountdownTitleColor();
+                return true;
+            }
+
+            remainingRatio = alarmRatio;
+            ringColor = ResolveAlarmCountdownColor();
+            return true;
+        }
+
+        private bool TryGetShutdownCountdownProgress(DateTime nowUtc, out TimeSpan remaining, out double remainingRatio)
+        {
+            remaining = TimeSpan.Zero;
+            remainingRatio = 0.0;
+
+            if (!_shutdownCountdownTargetUtc.HasValue)
+            {
+                return false;
+            }
+
+            remaining = _shutdownCountdownTargetUtc.Value - nowUtc;
+            if (remaining <= TimeSpan.Zero)
+            {
+                _shutdownCountdownTargetUtc = null;
+                _shutdownCountdownStartUtc = null;
+                _shutdownCountdownDuration = null;
+                return false;
+            }
+
+            var total = _shutdownCountdownDuration.HasValue && _shutdownCountdownDuration.Value > TimeSpan.Zero
+                ? _shutdownCountdownDuration.Value
+                : (_shutdownCountdownStartUtc.HasValue
+                    ? _shutdownCountdownTargetUtc.Value - _shutdownCountdownStartUtc.Value
+                    : remaining);
+
+            if (total <= TimeSpan.Zero)
+            {
+                total = remaining;
+            }
+
+            remainingRatio = Math.Max(0.0, Math.Min(1.0, remaining.TotalSeconds / Math.Max(1.0, total.TotalSeconds)));
+            return true;
+        }
+
+        private static bool TryGetAlarmCountdownProgress(DateTime nowUtc, out TimeSpan remaining, out double remainingRatio)
+        {
+            remaining = TimeSpan.Zero;
+            remainingRatio = 0.0;
+            DateTime? targetUtc;
+            DateTime? startUtc;
+            TimeSpan? totalDuration;
+            lock (AlarmScheduleSync)
+            {
+                targetUtc = _alarmTargetUtc;
+                startUtc = _alarmStartUtc;
+                totalDuration = _alarmDuration;
+            }
+
+            if (!targetUtc.HasValue)
+            {
+                return false;
+            }
+
+            remaining = targetUtc.Value - nowUtc;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return false;
+            }
+
+            var total = totalDuration.HasValue && totalDuration.Value > TimeSpan.Zero
+                ? totalDuration.Value
+                : (startUtc.HasValue ? targetUtc.Value - startUtc.Value : remaining);
+            if (total <= TimeSpan.Zero)
+            {
+                total = remaining;
+            }
+
+            remainingRatio = Math.Max(0.0, Math.Min(1.0, remaining.TotalSeconds / Math.Max(1.0, total.TotalSeconds)));
+            return true;
+        }
+
+        private void ApplyCenterCountdownRingVisual(double remainingRatio, System.Windows.Media.Color ringColor)
+        {
+            if (_centerAccentRing == null || _centerCountdownRing == null)
+            {
+                return;
+            }
+
+            remainingRatio = Math.Max(0.0, Math.Min(1.0, remainingRatio));
+            var shouldShow = remainingRatio > 0.001;
+            var wasActive = _isCenterCountdownRingActive;
+            var baseStrokeThickness = _centerAccentRingBaseStrokeThickness > 0.0
+                ? _centerAccentRingBaseStrokeThickness
+                : _centerAccentRing.StrokeThickness;
+            var countdownStrokeThickness = baseStrokeThickness;
+            if (_centerPanel != null)
+            {
+                var ringMargin = Math.Max(0.0, (_centerAccentRing.Width - _centerPanel.Width) * 0.5);
+                countdownStrokeThickness = Math.Max(countdownStrokeThickness, ringMargin);
+            }
+
+            countdownStrokeThickness = Math.Min(countdownStrokeThickness, _centerAccentRing.Width * 0.48);
+            var radius = Math.Max(1.0, (_centerAccentRing.Width - countdownStrokeThickness) * 0.5);
+
+            _centerCountdownRing.BeginAnimation(Shape.StrokeThicknessProperty, null);
+            _centerCountdownRing.Stroke = GetCachedBrush(System.Windows.Media.Color.FromArgb(236, ringColor.R, ringColor.G, ringColor.B));
+            _centerCountdownRing.StrokeThickness = countdownStrokeThickness;
+            _centerCountdownRing.Data = shouldShow
+                ? CreateCenterCountdownRingGeometry(_centerX, _centerY, radius, remainingRatio)
+                : Geometry.Empty;
+
+            if (shouldShow)
+            {
+                _centerCountdownRing.Visibility = Visibility.Visible;
+                if (!wasActive)
+                {
+                    _centerCountdownRing.BeginAnimation(OpacityProperty, null);
+                    _centerCountdownRing.Opacity = 0.0;
+                    var fadeIn = new DoubleAnimation
+                    {
+                        From = 0.0,
+                        To = 0.98,
+                        Duration = new Duration(CenterCountdownRingFadeInDuration),
+                        EasingFunction = CenterCountdownRingFadeInEase
+                    };
+                    ApplyDesiredFrameRate(fadeIn, RingAmbientAnimationFps);
+                    _centerCountdownRing.BeginAnimation(OpacityProperty, fadeIn, HandoffBehavior.SnapshotAndReplace);
+                }
+                else if (_centerCountdownRing.Opacity <= 0.001)
+                {
+                    _centerCountdownRing.BeginAnimation(OpacityProperty, null);
+                    _centerCountdownRing.Opacity = 0.98;
+                }
+            }
+            else
+            {
+                _centerCountdownRing.BeginAnimation(OpacityProperty, null);
+                _centerCountdownRing.Opacity = 0.0;
+                _centerCountdownRing.Visibility = Visibility.Collapsed;
+            }
+
+            _isCenterCountdownRingActive = shouldShow;
+            if (shouldShow)
+            {
+                _centerCountdownRingRevealNotBeforeUtc = DateTime.MinValue;
+            }
+
+            ClearCenterAccentRingSolidOverlay();
+            _centerAccentRing.BeginAnimation(OpacityProperty, null);
+            _centerAccentRing.Opacity = 0.0;
+        }
+
+        private void RestoreCenterAccentRingVisual()
+        {
+            if (!_isCenterCountdownRingActive)
+            {
+                return;
+            }
+
+            if (_centerCountdownRing != null)
+            {
+                _centerCountdownRing.BeginAnimation(OpacityProperty, null);
+                _centerCountdownRing.BeginAnimation(Shape.StrokeThicknessProperty, null);
+                _centerCountdownRing.Opacity = 0.0;
+                _centerCountdownRing.Visibility = Visibility.Collapsed;
+                _centerCountdownRing.Data = Geometry.Empty;
+            }
+
+            _isCenterCountdownRingActive = false;
+
+            if (_centerAccentRing == null)
+            {
+                return;
+            }
+
+            _centerAccentRing.BeginAnimation(Shape.StrokeProperty, null);
+            _centerAccentRing.BeginAnimation(OpacityProperty, null);
+            _centerAccentRing.BeginAnimation(Shape.StrokeThicknessProperty, null);
+            if (_centerAccentRingBaseStroke != null)
+            {
+                _centerAccentRing.Stroke = _centerAccentRingBaseStroke;
+            }
+
+            if (_centerAccentRingBaseStrokeThickness > 0.0)
+            {
+                _centerAccentRing.StrokeThickness = _centerAccentRingBaseStrokeThickness;
+            }
+
+            var baseOpacity = _centerAccentRingBaseOpacity > 0.0 ? _centerAccentRingBaseOpacity : 0.92;
+            _centerAccentRing.Opacity = baseOpacity;
+            if (_enableGradientRingAnimations)
+            {
+                StartCenterAccentRingAmbientOpacityAnimation(_centerAccentRing);
+            }
+        }
+
+        private static Geometry CreateCenterCountdownRingGeometry(double centerX, double centerY, double radius, double remainingRatio)
+        {
+            remainingRatio = Math.Max(0.0, Math.Min(1.0, remainingRatio));
+            if (remainingRatio <= 0.0005)
+            {
+                return Geometry.Empty;
+            }
+
+            remainingRatio = Math.Min(0.9994, remainingRatio);
+
+            const double startAngle = -90.0;
+            var sweepAngle = -360.0 * remainingRatio;
+            var startPoint = PointOnCircle(centerX, centerY, radius, startAngle);
+            var endPoint = PointOnCircle(centerX, centerY, radius, startAngle + sweepAngle);
+            var figure = new PathFigure
+            {
+                StartPoint = startPoint,
+                IsClosed = false,
+                IsFilled = false
+            };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = endPoint,
+                Size = new System.Windows.Size(radius, radius),
+                IsLargeArc = Math.Abs(sweepAngle) >= 180.0,
+                SweepDirection = SweepDirection.Counterclockwise
+            });
+
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            return geometry;
+        }
+
+        private void RefreshAlarmCountdownBadgeIfNeeded()
+        {
+            if (_centerAlarmCountdown == null)
+            {
+                return;
+            }
+
+            if (!ShouldShowIdleCenterClock() ||
+                _isStopwatchModeActive ||
+                (_centerBreadcrumb != null && !string.IsNullOrWhiteSpace(_centerBreadcrumb.Text)))
+            {
+                SetCenterTextBlockInstant(_centerAlarmCountdown, string.Empty);
+                return;
+            }
+
+            if (!TryGetAlarmRemaining(out var remaining))
+            {
+                SetCenterTextBlockInstant(_centerAlarmCountdown, string.Empty);
+                return;
+            }
+
+            _centerAlarmCountdown.Foreground = GetCachedBrush(ResolveAlarmCountdownColor());
+            SetCenterTextBlockInstant(_centerAlarmCountdown, FormatAlarmRemainingBadgeText(remaining));
+        }
+
+        private static string FormatAlarmRemainingBadgeText(TimeSpan remaining)
+        {
+            const string bell = "\U0001F514";
+            var totalMinutes = Math.Max(1, (int)Math.Ceiling(Math.Max(0.0, remaining.TotalMinutes)));
+            if (totalMinutes >= 60)
+            {
+                var hours = totalMinutes / 60;
+                var minutes = totalMinutes % 60;
+                return minutes > 0
+                    ? bell + " " + hours.ToString(CultureInfo.InvariantCulture) + " sa " + minutes.ToString(CultureInfo.InvariantCulture) + " dk"
+                    : bell + " " + hours.ToString(CultureInfo.InvariantCulture) + " sa";
+            }
+
+            return bell + " " + totalMinutes.ToString(CultureInfo.InvariantCulture) + " dk";
         }
 
         private bool TryGetShutdownCountdownDisplayText(out string text)
         {
             text = string.Empty;
+            if (!_toolsSettings.ShutdownTimer.ShowCenterCountdown)
+            {
+                return false;
+            }
+
             if (!_shutdownCountdownTargetUtc.HasValue)
             {
                 return false;
@@ -1244,6 +1734,8 @@ namespace RadialSek.UI
             if (remaining <= TimeSpan.Zero)
             {
                 _shutdownCountdownTargetUtc = null;
+                _shutdownCountdownStartUtc = null;
+                _shutdownCountdownDuration = null;
                 return false;
             }
 
@@ -1320,6 +1812,8 @@ namespace RadialSek.UI
             _centerAccentRingBaseOpacity = 0.0;
             _centerAccentRingBaseStrokeThickness = 0.0;
             _centerAccentRingSolidOverlay = null;
+            _centerCountdownRing = null;
+            _isCenterCountdownRingActive = false;
             _outerAccentRing = null;
             _outerAccentRingBaseStroke = null;
             _outerAccentRingBaseOpacity = 0.0;
@@ -1355,6 +1849,7 @@ namespace RadialSek.UI
             _selectedInteraction = null;
             _utilityDockButton = null;
             _utilityDockButtonCore = null;
+            _centerContentPanel = null;
 
             var items = _pages[Math.Max(0, Math.Min(_currentPageIndex, _pages.Count - 1))];
 
@@ -1414,6 +1909,22 @@ namespace RadialSek.UI
             _centerAccentRingBaseStrokeThickness = centerAccentRing.StrokeThickness;
             Canvas.SetLeft(centerAccentRing, centerX - centerAccentRing.Width / 2);
             Canvas.SetTop(centerAccentRing, centerY - centerAccentRing.Height / 2);
+            _centerCountdownRing = new ShapePath
+            {
+                Data = Geometry.Empty,
+                Stroke = GetCachedBrush(System.Windows.Media.Color.FromArgb(236, _theme.CenterBorderColor.R, _theme.CenterBorderColor.G, _theme.CenterBorderColor.B)),
+                StrokeThickness = Math.Max(
+                    _centerAccentRingBaseStrokeThickness > 0.0
+                        ? _centerAccentRingBaseStrokeThickness
+                        : Math.Max(2.2, profile.CenterSize * 0.018),
+                    Math.Max(0.0, (centerAccentRing.Width - profile.CenterSize) * 0.5)),
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Opacity = 0.0,
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
             var centerStack = new Grid
             {
                 Width = profile.CenterSize,
@@ -1467,20 +1978,60 @@ namespace RadialSek.UI
             };
             _centerSubtitle.Tag = _centerSubtitle.FontSize;
             _centerSubtitle.Visibility = Visibility.Collapsed;
+
+            _centerAlarmCountdown = new TextBlock
+            {
+                Text = string.Empty,
+                Foreground = GetCachedBrush(ResolveAlarmCountdownColor()),
+                FontFamily = new System.Windows.Media.FontFamily("Segoe UI Semibold"),
+                FontSize = Math.Max(20.0, (profile.SubtitleFontSize + 1.0) * 1.6),
+                FontWeight = FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.NoWrap,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(18, Math.Max(12, profile.CenterSize * 0.22), 18, 0),
+                Opacity = 0.0,
+                IsHitTestVisible = false
+            };
+            _centerAlarmCountdown.Tag = _centerAlarmCountdown.FontSize;
             _utilityDockButton = CreateUtilityDockButton(profile);
             _utilityDockButton.HorizontalAlignment = HorizontalAlignment.Center;
             _utilityDockButton.VerticalAlignment = VerticalAlignment.Bottom;
             _utilityDockButton.Margin = new Thickness(0, 0, 0, Math.Max(8, profile.CenterSize * 0.06));
 
             centerStack.Children.Add(_centerBreadcrumb);
+            centerStack.Children.Add(_centerAlarmCountdown);
             centerStack.Children.Add(_utilityDockButton);
+            centerStack.Children.Add(_centerSubtitle);
             centerStack.Children.Add(_centerTitle);
             Panel.SetZIndex(_centerTitle, 3);
+            Panel.SetZIndex(_centerAlarmCountdown, 4);
             Panel.SetZIndex(_utilityDockButton, 2);
-            _centerPanel.Child = centerStack;
+            Panel.SetZIndex(_centerSubtitle, 1);
+
+            _centerContentPanel = new Border
+            {
+                Width = profile.CenterSize,
+                Height = profile.CenterSize,
+                Background = System.Windows.Media.Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Child = centerStack
+            };
+            Canvas.SetLeft(_centerContentPanel, centerX - _centerContentPanel.Width / 2);
+            Canvas.SetTop(_centerContentPanel, centerY - _centerContentPanel.Height / 2);
+
+            _centerPanel.Child = null;
             RootCanvas.Children.Add(centerAccentRing);
+            RootCanvas.Children.Add(_centerCountdownRing);
             RootCanvas.Children.Add(_centerPanel);
+            RootCanvas.Children.Add(_centerContentPanel);
+            Panel.SetZIndex(centerAccentRing, CenterAccentRingZIndex);
+            Panel.SetZIndex(_centerCountdownRing, CenterContentZIndex - 1);
+            Panel.SetZIndex(_centerPanel, CenterBackgroundZIndex);
+            Panel.SetZIndex(_centerContentPanel, CenterContentZIndex);
             ApplyCenterTextLayout();
+            RefreshAlarmCountdownBadgeIfNeeded();
+            RefreshCenterCountdownRingVisual();
             EnsureEditModeVisuals(profile);
 
             if (items.Count == 0)
@@ -3488,6 +4039,7 @@ namespace RadialSek.UI
                 ? string.Empty
                 : string.Join(" > ", path);
             AnimateCenterText(_centerBreadcrumb, breadcrumbText);
+            RefreshAlarmCountdownBadgeIfNeeded();
         }
 
         private Border CreateSubmenuIconHost(MenuItemConfig item, double size, double startAngle, double endAngle)
@@ -5030,15 +5582,15 @@ namespace RadialSek.UI
             });
             RootTranslateTransform.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, translateAnimation);
 
-            if (_centerPanel != null)
+            foreach (var centerTarget in EnumerateCenterAnimationTargets())
             {
-                _centerPanel.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
+                centerTarget.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
                 var centerTransforms = new TransformGroup();
                 var centerScale = new ScaleTransform(0.94, 0.94);
                 var centerTranslate = new TranslateTransform(0, 10);
                 centerTransforms.Children.Add(centerScale);
                 centerTransforms.Children.Add(centerTranslate);
-                _centerPanel.RenderTransform = centerTransforms;
+                centerTarget.RenderTransform = centerTransforms;
 
                 var centerScaleAnim = new DoubleAnimationUsingKeyFrames();
                 centerScaleAnim.KeyFrames.Add(new EasingDoubleKeyFrame(0.95, KeyTime.FromTimeSpan(TimeSpan.Zero)));
@@ -5215,14 +5767,14 @@ namespace RadialSek.UI
             RootTranslateTransform.Y = 0.0;
 
             var centerEase = new CubicEase { EasingMode = EasingMode.EaseOut };
-            if (_centerPanel != null)
+            foreach (var centerTarget in EnumerateCenterAnimationTargets())
             {
-                _centerPanel.BeginAnimation(OpacityProperty, null);
-                _centerPanel.Opacity = 0.0;
-                _centerPanel.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
-                _centerPanel.RenderTransform = new ScaleTransform(0.0, 0.0);
+                centerTarget.BeginAnimation(OpacityProperty, null);
+                centerTarget.Opacity = 0.0;
+                centerTarget.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
+                centerTarget.RenderTransform = new ScaleTransform(0.0, 0.0);
 
-                _centerPanel.BeginAnimation(OpacityProperty, new DoubleAnimation
+                centerTarget.BeginAnimation(OpacityProperty, new DoubleAnimation
                 {
                     From = 0.0,
                     To = 1.0,
@@ -5230,7 +5782,7 @@ namespace RadialSek.UI
                     EasingFunction = centerEase
                 });
 
-                if (_centerPanel.RenderTransform is ScaleTransform centerScale)
+                if (centerTarget.RenderTransform is ScaleTransform centerScale)
                 {
                     centerScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, new DoubleAnimation
                     {
@@ -5726,6 +6278,7 @@ namespace RadialSek.UI
             _odakKaskadiAnimatedSegments.Clear();
             _odakKaskadiIconFinalPositions.Clear();
             _isOdakKaskadiAnimationActive = false;
+            RefreshCenterCountdownRingVisual();
         }
 
         private void ClearCenterAccentRingSolidOverlay()
@@ -5767,38 +6320,42 @@ namespace RadialSek.UI
 
         private void AnimateCenterPanelEntrance(double fromOpacity, double toOpacity, double fromScale, double peakScale, int fadeMs, int scaleMs)
         {
-            if (_centerPanel == null)
+            var centerTargets = EnumerateCenterAnimationTargets().ToList();
+            if (centerTargets.Count == 0)
             {
                 AnimateUtilityDockEntrance(fromOpacity, toOpacity, fromScale, peakScale, fadeMs, scaleMs);
                 return;
             }
 
-            _centerPanel.Opacity = fromOpacity;
-            _centerPanel.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
-            _centerPanel.RenderTransform = new ScaleTransform(fromScale, fromScale);
-
-            _centerPanel.BeginAnimation(OpacityProperty, new DoubleAnimation
+            foreach (var centerTarget in centerTargets)
             {
-                From = fromOpacity,
-                To = toOpacity,
-                Duration = TimeSpan.FromMilliseconds(fadeMs),
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-            });
+                centerTarget.Opacity = fromOpacity;
+                centerTarget.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
+                centerTarget.RenderTransform = new ScaleTransform(fromScale, fromScale);
 
-            if (_centerPanel.RenderTransform is ScaleTransform centerScale)
-            {
-                var scaleAnimation = new DoubleAnimationUsingKeyFrames();
-                scaleAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(fromScale, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-                scaleAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(peakScale, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(scaleMs * 0.72)))
+                centerTarget.BeginAnimation(OpacityProperty, new DoubleAnimation
                 {
+                    From = fromOpacity,
+                    To = toOpacity,
+                    Duration = TimeSpan.FromMilliseconds(fadeMs),
                     EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
                 });
-                scaleAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(scaleMs)))
+
+                if (centerTarget.RenderTransform is ScaleTransform centerScale)
                 {
-                    EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 }
-                });
-                centerScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, scaleAnimation);
-                centerScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, scaleAnimation);
+                    var scaleAnimation = new DoubleAnimationUsingKeyFrames();
+                    scaleAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(fromScale, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                    scaleAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(peakScale, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(scaleMs * 0.72)))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                    });
+                    scaleAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(scaleMs)))
+                    {
+                        EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 }
+                    });
+                    centerScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, scaleAnimation);
+                    centerScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, scaleAnimation);
+                }
             }
 
             AnimateUtilityDockEntrance(fromOpacity, toOpacity, fromScale, peakScale, fadeMs, scaleMs);
@@ -6027,10 +6584,10 @@ namespace RadialSek.UI
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
             });
 
-            if (_centerPanel != null)
+            foreach (var centerTarget in EnumerateCenterAnimationTargets())
             {
-                _centerPanel.Opacity = 0.0;
-                _centerPanel.BeginAnimation(OpacityProperty, new DoubleAnimation
+                centerTarget.Opacity = 0.0;
+                centerTarget.BeginAnimation(OpacityProperty, new DoubleAnimation
                 {
                     From = 0.0,
                     To = 1.0,
@@ -6077,6 +6634,7 @@ namespace RadialSek.UI
         private void ClearCenterTextForCategoryMode()
         {
             ClearCenterTextBlockInstant(_centerBreadcrumb);
+            ClearCenterTextBlockInstant(_centerAlarmCountdown);
             ClearCenterTextBlockInstant(_centerTitle);
             ClearCenterTextBlockInstant(_centerSubtitle);
             ApplyCenterTextLayout();
@@ -6103,6 +6661,35 @@ namespace RadialSek.UI
 
             textBlock.Text = string.Empty;
             textBlock.Opacity = 0.0;
+        }
+
+        private void SetCenterTextBlockInstant(TextBlock textBlock, string text)
+        {
+            _centerTextAnimationVersions[textBlock] = GetNextCenterTextAnimationVersion(textBlock);
+            textBlock.BeginAnimation(OpacityProperty, null);
+            if (textBlock.RenderTransform is TranslateTransform translate)
+            {
+                translate.BeginAnimation(TranslateTransform.YProperty, null);
+                translate.Y = 0.0;
+            }
+            else
+            {
+                textBlock.RenderTransform = new TranslateTransform(0, 0);
+            }
+
+            textBlock.Text = text;
+            textBlock.Opacity = string.IsNullOrWhiteSpace(text) ? 0.0 : 1.0;
+            ApplyCenterTextLayout();
+        }
+
+        private void SetCenterTextBlockInstantIfAvailable(TextBlock? textBlock, string text)
+        {
+            if (textBlock == null)
+            {
+                return;
+            }
+
+            SetCenterTextBlockInstant(textBlock, text);
         }
 
         private int GetNextCenterTextAnimationVersion(TextBlock textBlock)
@@ -6168,6 +6755,19 @@ namespace RadialSek.UI
             textBlock.BeginAnimation(OpacityProperty, fadeOut);
         }
 
+        private IEnumerable<FrameworkElement> EnumerateCenterAnimationTargets()
+        {
+            if (_centerPanel != null)
+            {
+                yield return _centerPanel;
+            }
+
+            if (_centerContentPanel != null)
+            {
+                yield return _centerContentPanel;
+            }
+        }
+
         private void ApplyCenterTextLayout()
         {
             if (_centerPanel == null)
@@ -6190,6 +6790,7 @@ namespace RadialSek.UI
                 ? Math.Max(14.0, _centerTitleBaseFontSize * 1.55)
                 : 11.0;
             FitCenterTextBlock(_centerBreadcrumb, usableWidth, hasBreadcrumb ? panelSize * 0.16 : 0, 9.0);
+            FitCenterTextBlock(_centerAlarmCountdown, usableWidth, hasBreadcrumb ? 0 : panelSize * 0.256, 16.8);
             FitCenterTextBlock(_centerTitle, usableWidth, titleMaxHeight, titleMinFontSize);
             FitCenterTextBlock(_centerSubtitle, usableWidth, hasBreadcrumb ? panelSize * 0.25 : panelSize * 0.28, 9.5);
         }
@@ -7026,20 +7627,6 @@ namespace RadialSek.UI
                 Margin = new Thickness(0, 0, 0, 8)
             };
 
-            var shutdownTimerRow = CreateContextMenuActionRow(
-                "Kapatma Zamanlayicisi",
-                "30 dk / 1 saat / 2 saat / iptal",
-                System.Windows.Media.Color.FromArgb(238, 255, 230, 170),
-                System.Windows.Media.Color.FromArgb(96, 255, 186, 96),
-                ShowShutdownTimerOptionsMenu);
-
-            var stopwatchRow = CreateContextMenuActionRow(
-                "Kronometre",
-                "Yakinda: baslat / durdur / sifirla",
-                System.Windows.Media.Color.FromArgb(238, 216, 233, 255),
-                System.Windows.Media.Color.FromArgb(96, 138, 188, 255),
-                () => ShowUtilityDockComingSoonHint("Kronometre yakinda"));
-
             var settingsRow = CreateContextMenuActionRow(
                 "Ayarlar",
                 "Ayar penceresini ac",
@@ -7049,8 +7636,62 @@ namespace RadialSek.UI
 
             var panel = new StackPanel();
             panel.Children.Add(title);
-            panel.Children.Add(shutdownTimerRow);
-            panel.Children.Add(stopwatchRow);
+            var hasAnyEnabledTool = false;
+            if (_toolsSettings.ShutdownTimer.EnableShutdownTimerTool)
+            {
+                hasAnyEnabledTool = true;
+                var shutdownTimerRow = CreateContextMenuActionRow(
+                    "Kapatma Zamanlayicisi",
+                    "30 dk / 1 saat / 2 saat / iptal",
+                    System.Windows.Media.Color.FromArgb(238, 255, 230, 170),
+                    System.Windows.Media.Color.FromArgb(96, 255, 186, 96),
+                    ShowShutdownTimerOptionsMenu);
+                panel.Children.Add(shutdownTimerRow);
+            }
+
+            if (_toolsSettings.Alarm.EnableAlarmTool)
+            {
+                hasAnyEnabledTool = true;
+                var alarmHint = TryGetAlarmRemainingDisplayText(out var alarmRemainingText)
+                    ? "Kalan: " + alarmRemainingText
+                    : "Dakika veya saat secerek alarm kur";
+                var alarmRow = CreateContextMenuActionRow(
+                    "Alarm",
+                    alarmHint,
+                    System.Windows.Media.Color.FromArgb(238, 255, 214, 228),
+                    System.Windows.Media.Color.FromArgb(96, 255, 118, 158),
+                    ShowAlarmOptionsMenu);
+                panel.Children.Add(alarmRow);
+            }
+
+            if (_toolsSettings.Stopwatch.EnableStopwatchTool)
+            {
+                hasAnyEnabledTool = true;
+                var stopwatchRow = CreateContextMenuActionRow(
+                    "Kronometre",
+                    !_isStopwatchModeActive
+                        ? "Saat yerine kronometreyi baslat"
+                        : _centerStopwatch.IsRunning
+                            ? "Calisiyor: sag tik ile yonet"
+                            : "Durakladi: tiklayinca devam eder",
+                    System.Windows.Media.Color.FromArgb(238, 216, 233, 255),
+                    System.Windows.Media.Color.FromArgb(96, 138, 188, 255),
+                    StartStopwatchFromUtilityDock);
+                panel.Children.Add(stopwatchRow);
+            }
+
+            if (!hasAnyEnabledTool)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Araclar kapali. Ayarlar > Araclar bolumunden acabilirsiniz.",
+                    Foreground = GetCachedBrush(System.Windows.Media.Color.FromArgb(180, 206, 214, 228)),
+                    FontSize = 11.5,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 8)
+                });
+            }
+
             panel.Children.Add(settingsRow);
 
             var menu = new Border
@@ -7086,6 +7727,12 @@ namespace RadialSek.UI
 
         private void ShowShutdownTimerOptionsMenu()
         {
+            if (!_toolsSettings.ShutdownTimer.EnableShutdownTimerTool)
+            {
+                ShowUtilityDockComingSoonHint("Kapatma zamanlayicisi Araclar ayarlarindan kapali");
+                return;
+            }
+
             HideItemContextMenu();
             PlayUiSound(SoundCue.UiSelect);
 
@@ -7166,6 +7813,536 @@ namespace RadialSek.UI
             _itemContextMenu = menu;
         }
 
+        private void ShowAlarmOptionsMenu()
+        {
+            if (!_toolsSettings.Alarm.EnableAlarmTool)
+            {
+                ShowUtilityDockComingSoonHint("Alarm araci Araclar ayarlarindan kapali");
+                return;
+            }
+
+            HideItemContextMenu();
+            PlayUiSound(SoundCue.UiSelect);
+
+            var titleText = TryGetAlarmRemainingDisplayText(out var remainingText)
+                ? "Alarm (Kalan " + remainingText + ")"
+                : "Alarm";
+            var title = new TextBlock
+            {
+                Text = titleText,
+                Foreground = GetCachedBrush(System.Windows.Media.Color.FromArgb(236, 244, 246, 252)),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            var option5Min = CreateContextMenuActionRow(
+                "5 Dakika",
+                "5 dk sonra alarm calar",
+                System.Windows.Media.Color.FromArgb(238, 255, 214, 228),
+                System.Windows.Media.Color.FromArgb(96, 255, 118, 158),
+                () => ScheduleAlarm(TimeSpan.FromMinutes(5)));
+
+            var option15Min = CreateContextMenuActionRow(
+                "15 Dakika",
+                "15 dk sonra alarm calar",
+                System.Windows.Media.Color.FromArgb(238, 255, 214, 228),
+                System.Windows.Media.Color.FromArgb(96, 255, 118, 158),
+                () => ScheduleAlarm(TimeSpan.FromMinutes(15)));
+
+            var option30Min = CreateContextMenuActionRow(
+                "30 Dakika",
+                "30 dk sonra alarm calar",
+                System.Windows.Media.Color.FromArgb(238, 255, 214, 228),
+                System.Windows.Media.Color.FromArgb(96, 255, 118, 158),
+                () => ScheduleAlarm(TimeSpan.FromMinutes(30)));
+
+            var option1Hour = CreateContextMenuActionRow(
+                "1 Saat",
+                "1 saat sonra alarm calar",
+                System.Windows.Media.Color.FromArgb(238, 255, 214, 228),
+                System.Windows.Media.Color.FromArgb(96, 255, 118, 158),
+                () => ScheduleAlarm(TimeSpan.FromHours(1)));
+
+            var option2Hour = CreateContextMenuActionRow(
+                "2 Saat",
+                "2 saat sonra alarm calar",
+                System.Windows.Media.Color.FromArgb(238, 255, 214, 228),
+                System.Windows.Media.Color.FromArgb(96, 255, 118, 158),
+                () => ScheduleAlarm(TimeSpan.FromHours(2)));
+
+            var customMinutes = CreateContextMenuActionRow(
+                "Dakika Gir",
+                "Istediginiz dakika degerini girin",
+                System.Windows.Media.Color.FromArgb(238, 235, 220, 255),
+                System.Windows.Media.Color.FromArgb(96, 166, 136, 255),
+                PromptCustomAlarmMinutes);
+
+            var customHours = CreateContextMenuActionRow(
+                "Saat Gir",
+                "Istediginiz saat degerini girin",
+                System.Windows.Media.Color.FromArgb(238, 235, 220, 255),
+                System.Windows.Media.Color.FromArgb(96, 166, 136, 255),
+                PromptCustomAlarmHours);
+
+            var cancelOption = CreateContextMenuActionRow(
+                "Alarmi Iptal Et",
+                "Planlanan alarmi kaldir",
+                System.Windows.Media.Color.FromArgb(238, 255, 206, 190),
+                System.Windows.Media.Color.FromArgb(96, 255, 132, 110),
+                CancelScheduledAlarm);
+
+            var panel = new StackPanel();
+            panel.Children.Add(title);
+            panel.Children.Add(option5Min);
+            panel.Children.Add(option15Min);
+            panel.Children.Add(option30Min);
+            panel.Children.Add(option1Hour);
+            panel.Children.Add(option2Hour);
+            panel.Children.Add(customMinutes);
+            panel.Children.Add(customHours);
+            panel.Children.Add(cancelOption);
+
+            var menu = new Border
+            {
+                Width = 272,
+                Background = GetCachedBrush(System.Windows.Media.Color.FromArgb(242, 22, 24, 30)),
+                BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(70, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(10),
+                Child = panel,
+                Effect = CreateOptimizedShadowEffect(18, 0.28, System.Windows.Media.Color.FromArgb(255, 0, 0, 0))
+            };
+
+            menu.MouseLeftButtonDown += (_, e) => e.Handled = true;
+            menu.MouseRightButtonDown += (_, e) => e.Handled = true;
+            menu.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+
+            var desired = menu.DesiredSize;
+            var profile = GetLayoutProfile();
+            var rightAnchor = _centerX + profile.OuterRadius;
+            var left = rightAnchor + Math.Max(26.0, profile.IconSize * 0.62);
+            var top = _centerY - (desired.Height / 2.0);
+            left = Math.Max(18, Math.Min(left, Math.Max(18, ActualWidth - desired.Width - 18)));
+            top = Math.Max(18, Math.Min(top, Math.Max(18, ActualHeight - desired.Height - 18)));
+
+            Canvas.SetLeft(menu, left);
+            Canvas.SetTop(menu, top);
+            Panel.SetZIndex(menu, OverlayContextMenuZIndex);
+            menu.Tag = UtilityAlarmTrayTag;
+            RootCanvas.Children.Add(menu);
+            _itemContextMenu = menu;
+        }
+
+        private void ScheduleAlarm(TimeSpan delay)
+        {
+            if (delay <= TimeSpan.Zero)
+            {
+                ShowUtilityDockComingSoonHint("Gecersiz alarm suresi");
+                return;
+            }
+
+            CancellationTokenSource? previousCts;
+            var newCts = new CancellationTokenSource();
+            var nowUtc = DateTime.UtcNow;
+            lock (AlarmScheduleSync)
+            {
+                previousCts = _alarmCountdownCts;
+                _alarmCountdownCts = newCts;
+                _alarmStartUtc = nowUtc;
+                _alarmDuration = delay;
+                _alarmTargetUtc = nowUtc.Add(delay);
+            }
+
+            if (previousCts != null)
+            {
+                try
+                {
+                    previousCts.Cancel();
+                }
+                catch
+                {
+                }
+
+                previousCts.Dispose();
+            }
+
+            _ = WaitAndTriggerAlarmAsync(newCts, delay);
+            ShowUtilityDockComingSoonHint("Alarm ayarlandi: " + FormatAlarmDelay(delay));
+            RefreshIdleCenterTitleIfNeeded();
+            RefreshCenterCountdownRingVisual();
+        }
+
+        private void CancelScheduledAlarm()
+        {
+            CancellationTokenSource? currentCts;
+            var hadActiveAlarm = false;
+            lock (AlarmScheduleSync)
+            {
+                hadActiveAlarm = _alarmCountdownCts != null || _alarmTargetUtc.HasValue;
+                currentCts = _alarmCountdownCts;
+                _alarmCountdownCts = null;
+                _alarmStartUtc = null;
+                _alarmDuration = null;
+                _alarmTargetUtc = null;
+            }
+
+            if (currentCts != null)
+            {
+                try
+                {
+                    currentCts.Cancel();
+                }
+                catch
+                {
+                }
+
+                currentCts.Dispose();
+            }
+
+            ShowUtilityDockComingSoonHint(hadActiveAlarm ? "Alarm iptal edildi" : "Aktif alarm yok");
+            RefreshIdleCenterTitleIfNeeded();
+            RefreshCenterCountdownRingVisual();
+        }
+
+        private void PromptCustomAlarmMinutes()
+        {
+            var input = ShowSimpleTextInputDialog("Alarm Ayarla", "Dakika girin (ornek: 45)", "15");
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return;
+            }
+
+            var normalized = input.Trim().Replace(",", ".");
+            if (!double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var minutes) ||
+                minutes <= 0 ||
+                minutes > 1440)
+            {
+                ShowUtilityDockComingSoonHint("Gecersiz dakika degeri");
+                return;
+            }
+
+            ScheduleAlarm(TimeSpan.FromMinutes(minutes));
+        }
+
+        private void PromptCustomAlarmHours()
+        {
+            var input = ShowSimpleTextInputDialog("Alarm Ayarla", "Saat girin (ornek: 1.5)", "1");
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return;
+            }
+
+            var normalized = input.Trim().Replace(",", ".");
+            if (!double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var hours) ||
+                hours <= 0 ||
+                hours > 72)
+            {
+                ShowUtilityDockComingSoonHint("Gecersiz saat degeri");
+                return;
+            }
+
+            ScheduleAlarm(TimeSpan.FromHours(hours));
+        }
+
+        private static bool TryGetAlarmRemainingDisplayText(out string text)
+        {
+            text = string.Empty;
+            if (!TryGetAlarmRemaining(out var remaining))
+            {
+                return false;
+            }
+
+            text = FormatAlarmRemaining(remaining);
+            return true;
+        }
+
+        private static bool TryGetAlarmRemaining(out TimeSpan remaining)
+        {
+            remaining = TimeSpan.Zero;
+            DateTime? targetUtc;
+            lock (AlarmScheduleSync)
+            {
+                targetUtc = _alarmTargetUtc;
+            }
+
+            if (!targetUtc.HasValue)
+            {
+                return false;
+            }
+
+            remaining = targetUtc.Value - DateTime.UtcNow;
+            return remaining > TimeSpan.Zero;
+        }
+
+        private static string FormatAlarmRemaining(TimeSpan remaining)
+        {
+            if (remaining.TotalHours >= 1.0)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}:{1:00}:{2:00}",
+                    (int)remaining.TotalHours,
+                    remaining.Minutes,
+                    remaining.Seconds);
+            }
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:00}:{1:00}",
+                Math.Max(0, (int)remaining.TotalMinutes),
+                Math.Max(0, remaining.Seconds));
+        }
+
+        private static string FormatAlarmDelay(TimeSpan delay)
+        {
+            var totalMinutes = Math.Max(1, (int)Math.Round(delay.TotalMinutes));
+            if (totalMinutes >= 60)
+            {
+                var hours = totalMinutes / 60;
+                var minutes = totalMinutes % 60;
+                return minutes > 0
+                    ? hours.ToString(CultureInfo.InvariantCulture) + " saat " + minutes.ToString(CultureInfo.InvariantCulture) + " dk"
+                    : hours.ToString(CultureInfo.InvariantCulture) + " saat";
+            }
+
+            return totalMinutes.ToString(CultureInfo.InvariantCulture) + " dk";
+        }
+
+        private async Task WaitAndTriggerAlarmAsync(CancellationTokenSource ownerCts, TimeSpan delay)
+        {
+            try
+            {
+                await Task.Delay(delay, ownerCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            lock (AlarmScheduleSync)
+            {
+                if (!ReferenceEquals(_alarmCountdownCts, ownerCts))
+                {
+                    return;
+                }
+
+                _alarmCountdownCts = null;
+                _alarmStartUtc = null;
+                _alarmDuration = null;
+                _alarmTargetUtc = null;
+            }
+
+            ownerCts.Dispose();
+
+            var app = Application.Current;
+            if (app == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _ = app.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (IsVisible)
+                        {
+                            ForceReleaseInputState("Alarm bildirimi oncesi input fail-safe");
+                        }
+
+                        PlayAlarmDueNotificationSound();
+                        RefreshIdleCenterTitleIfNeeded();
+                        RefreshCenterCountdownRingVisual();
+                    }
+                    catch
+                    {
+                    }
+
+                    try
+                    {
+                        Window? notificationOwner = null;
+                        if (IsVisible)
+                        {
+                            notificationOwner = this;
+                        }
+                        else if (app.MainWindow != null &&
+                                 app.MainWindow.IsVisible &&
+                                 !ReferenceEquals(app.MainWindow, this))
+                        {
+                            notificationOwner = app.MainWindow;
+                        }
+
+                        ShowAlarmNotificationDialog(notificationOwner);
+                    }
+                    catch
+                    {
+                    }
+                }), DispatcherPriority.Normal);
+            }
+            catch
+            {
+            }
+        }
+
+        private void PlayAlarmDueNotificationSound()
+        {
+            if (!_toolsSettings.Alarm.EnableDueNotificationSound)
+            {
+                return;
+            }
+
+            var playedCustomSound = AlarmNotificationSoundService.TryPlay(
+                _toolsSettings.Alarm.DueNotificationSoundPath,
+                _toolsSettings.Alarm.DueNotificationSoundVolume);
+            if (!playedCustomSound)
+            {
+                SoundManager.Instance.Play(SoundCue.Notification);
+                SoundManager.Instance.Play(SoundCue.Warning);
+            }
+        }
+
+        private static void ShowAlarmNotificationDialog(Window? owner)
+        {
+            static SolidColorBrush CreateBrush(System.Windows.Media.Color color)
+            {
+                var brush = new SolidColorBrush(color);
+                if (brush.CanFreeze)
+                {
+                    brush.Freeze();
+                }
+
+                return brush;
+            }
+
+            var accent = System.Windows.Media.Color.FromRgb(255, 118, 158);
+            var accentHover = BlendColors(accent, Colors.White, 0.24);
+            var titleBrush = CreateBrush(System.Windows.Media.Color.FromArgb(238, 244, 247, 252));
+            var subtitleBrush = CreateBrush(System.Windows.Media.Color.FromArgb(178, 200, 211, 229));
+
+            var titleText = new TextBlock
+            {
+                Text = "Alarm",
+                Foreground = titleBrush,
+                FontSize = 16,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            var bodyText = new TextBlock
+            {
+                Text = "Alarm suresi doldu.",
+                Foreground = subtitleBrush,
+                FontSize = 13.5,
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            var okButton = new Button
+            {
+                Content = "Tamam",
+                Height = 38,
+                MinWidth = 122,
+                Padding = new Thickness(16, 8, 16, 8),
+                Background = CreateBrush(System.Windows.Media.Color.FromArgb(236, accent.R, accent.G, accent.B)),
+                Foreground = CreateBrush(System.Windows.Media.Color.FromArgb(244, 246, 250, 255)),
+                BorderBrush = CreateBrush(System.Windows.Media.Color.FromArgb(188, accentHover.R, accentHover.G, accentHover.B)),
+                BorderThickness = new Thickness(1.0),
+                FontWeight = FontWeights.SemiBold,
+                Cursor = Cursors.Hand,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+
+            var okDefaultBackground = okButton.Background;
+            var okDefaultBorder = okButton.BorderBrush;
+            var okHoverBackground = CreateBrush(System.Windows.Media.Color.FromArgb(246, accentHover.R, accentHover.G, accentHover.B));
+            var okHoverBorder = CreateBrush(System.Windows.Media.Color.FromArgb(220, 255, 255, 255));
+            okButton.MouseEnter += (_, __) =>
+            {
+                okButton.Background = okHoverBackground;
+                okButton.BorderBrush = okHoverBorder;
+            };
+            okButton.MouseLeave += (_, __) =>
+            {
+                okButton.Background = okDefaultBackground;
+                okButton.BorderBrush = okDefaultBorder;
+            };
+
+            var contentPanel = new StackPanel();
+            contentPanel.Children.Add(titleText);
+            contentPanel.Children.Add(bodyText);
+            contentPanel.Children.Add(new Border
+            {
+                Height = 14,
+                Background = System.Windows.Media.Brushes.Transparent
+            });
+            contentPanel.Children.Add(okButton);
+
+            var card = new Border
+            {
+                Margin = new Thickness(16),
+                Padding = new Thickness(18, 16, 18, 16),
+                CornerRadius = new CornerRadius(14),
+                Background = CreateBrush(System.Windows.Media.Color.FromArgb(242, 22, 24, 30)),
+                BorderBrush = CreateBrush(System.Windows.Media.Color.FromArgb(88, 255, 255, 255)),
+                BorderThickness = new Thickness(1.1),
+                Effect = CreateOptimizedShadowEffect(18, 0.28, System.Windows.Media.Color.FromArgb(255, 0, 0, 0)),
+                Child = contentPanel
+            };
+
+            var dialog = new Window
+            {
+                Title = "Radial Sek Alarm",
+                Width = 420,
+                MinWidth = 390,
+                MinHeight = 208,
+                SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                Content = card,
+                ShowInTaskbar = false,
+                Topmost = true
+            };
+
+            if (owner != null && owner.IsVisible)
+            {
+                dialog.Owner = owner;
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            }
+            else
+            {
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            }
+
+            okButton.Click += (_, __) =>
+            {
+                dialog.DialogResult = true;
+            };
+
+            dialog.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter || e.Key == Key.Escape)
+                {
+                    dialog.DialogResult = true;
+                    e.Handled = true;
+                }
+            };
+
+            dialog.Loaded += (_, __) =>
+            {
+                dialog.Activate();
+                dialog.Focus();
+                okButton.Focus();
+            };
+            dialog.Closed += (_, __) => AlarmNotificationSoundService.Stop();
+
+            dialog.ShowDialog();
+        }
+
         private void ScheduleSystemShutdown(TimeSpan delay)
         {
             var seconds = (int)Math.Round(Math.Max(1.0, delay.TotalSeconds));
@@ -7175,12 +8352,16 @@ namespace RadialSek.UI
                 return;
             }
 
-            _shutdownCountdownTargetUtc = DateTime.UtcNow.AddSeconds(seconds);
+            var nowUtc = DateTime.UtcNow;
+            _shutdownCountdownStartUtc = nowUtc;
+            _shutdownCountdownDuration = TimeSpan.FromSeconds(seconds);
+            _shutdownCountdownTargetUtc = nowUtc.AddSeconds(seconds);
             HideItemContextMenu();
             if (_centerTitle != null)
             {
                 SetCenterTitleText(GetDefaultCenterTitleText(), useIdleClockTypography: true);
             }
+            RefreshCenterCountdownRingVisual();
         }
 
         private void CancelScheduledSystemShutdown()
@@ -7192,11 +8373,14 @@ namespace RadialSek.UI
             }
 
             _shutdownCountdownTargetUtc = null;
+            _shutdownCountdownStartUtc = null;
+            _shutdownCountdownDuration = null;
             HideItemContextMenu();
             if (_centerTitle != null)
             {
                 SetCenterTitleText(GetDefaultCenterTitleText(), useIdleClockTypography: ShouldShowIdleCenterClock());
             }
+            RefreshCenterCountdownRingVisual();
         }
 
         private static bool TryRunShutdownCommand(string arguments)
@@ -7217,6 +8401,68 @@ namespace RadialSek.UI
             {
                 return false;
             }
+        }
+
+        private void StartStopwatchFromUtilityDock()
+        {
+            if (!_toolsSettings.Stopwatch.EnableStopwatchTool)
+            {
+                ShowUtilityDockComingSoonHint("Kronometre araci Araclar ayarlarindan kapali");
+                return;
+            }
+
+            _isStopwatchModeActive = true;
+            if (!_centerStopwatch.IsRunning)
+            {
+                _centerStopwatch.Start();
+            }
+
+            HideItemContextMenu();
+            RefreshIdleCenterTitleIfNeeded();
+        }
+
+        private void StartStopwatchFromContextMenu()
+        {
+            if (!_toolsSettings.Stopwatch.EnableStopwatchTool)
+            {
+                ShowUtilityDockComingSoonHint("Kronometre araci Araclar ayarlarindan kapali");
+                return;
+            }
+
+            _isStopwatchModeActive = true;
+            if (!_centerStopwatch.IsRunning)
+            {
+                _centerStopwatch.Start();
+            }
+
+            HideItemContextMenu();
+            RefreshIdleCenterTitleIfNeeded();
+        }
+
+        private void StopStopwatchFromContextMenu()
+        {
+            if (_centerStopwatch.IsRunning)
+            {
+                _centerStopwatch.Stop();
+            }
+
+            HideItemContextMenu();
+            RefreshIdleCenterTitleIfNeeded();
+        }
+
+        private void ResetStopwatchFromContextMenu()
+        {
+            _centerStopwatch.Reset();
+            HideItemContextMenu();
+            RefreshIdleCenterTitleIfNeeded();
+        }
+
+        private void ExitStopwatchModeFromContextMenu()
+        {
+            _isStopwatchModeActive = false;
+            _centerStopwatch.Stop();
+            HideItemContextMenu();
+            RefreshIdleCenterTitleIfNeeded();
         }
 
         private void ShowUtilityDockComingSoonHint(string text)
@@ -7260,12 +8506,54 @@ namespace RadialSek.UI
 
             var panel = new StackPanel();
             panel.Children.Add(title);
+            if (_toolsSettings.Stopwatch.EnableStopwatchTool)
+            {
+                var stopwatchPrimaryTitle = !_isStopwatchModeActive || !_centerStopwatch.IsRunning
+                    ? "Kronometre Baslat"
+                    : "Kronometre Durdur";
+                var stopwatchPrimaryHint = !_isStopwatchModeActive
+                    ? "Merkez saati yerine kronometreyi ac"
+                    : _centerStopwatch.IsRunning
+                        ? "Calisan kronometreyi duraklat"
+                        : "Duraklatilan kronometreyi devam ettir";
+                var stopwatchPrimaryAction = !_isStopwatchModeActive || !_centerStopwatch.IsRunning
+                    ? (Action)StartStopwatchFromContextMenu
+                    : StopStopwatchFromContextMenu;
+
+                var stopwatchPrimaryRow = CreateContextMenuActionRow(
+                    stopwatchPrimaryTitle,
+                    stopwatchPrimaryHint,
+                    System.Windows.Media.Color.FromArgb(238, 216, 233, 255),
+                    System.Windows.Media.Color.FromArgb(96, 138, 188, 255),
+                    stopwatchPrimaryAction);
+
+                panel.Children.Add(stopwatchPrimaryRow);
+                if (_isStopwatchModeActive)
+                {
+                    var stopwatchResetRow = CreateContextMenuActionRow(
+                        "Kronometre Sifirla",
+                        "Sureyi 00:00 degerine sifirla",
+                        System.Windows.Media.Color.FromArgb(238, 204, 233, 255),
+                        System.Windows.Media.Color.FromArgb(96, 132, 178, 255),
+                        ResetStopwatchFromContextMenu);
+
+                    var stopwatchExitRow = CreateContextMenuActionRow(
+                        "Saate Don",
+                        "Merkezde saat gorunumunu geri getir",
+                        System.Windows.Media.Color.FromArgb(238, 204, 231, 255),
+                        System.Windows.Media.Color.FromArgb(96, 126, 170, 255),
+                        ExitStopwatchModeFromContextMenu);
+
+                    panel.Children.Add(stopwatchResetRow);
+                    panel.Children.Add(stopwatchExitRow);
+                }
+            }
             panel.Children.Add(addCategoryRow);
             panel.Children.Add(settingsRow);
 
             var menu = new Border
             {
-                Width = 214,
+                Width = 252,
                 Background = GetCachedBrush(System.Windows.Media.Color.FromArgb(242, 22, 24, 30)),
                 BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(70, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
@@ -7591,63 +8879,154 @@ namespace RadialSek.UI
 
         private string? ShowSimpleTextInputDialog(string title, string label, string initialValue)
         {
+            var accent = BlendColors(_theme.SegmentActiveColor, _theme.CenterBorderColor, 0.45);
+            var accentHover = BlendColors(accent, Colors.White, 0.24);
+            var titleBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(238, 244, 247, 252));
+            var hintBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(166, 196, 206, 224));
+            var fieldBackground = GetCachedBrush(System.Windows.Media.Color.FromArgb(218, 16, 19, 26));
+            var fieldBorder = GetCachedBrush(System.Windows.Media.Color.FromArgb(108, accent.R, accent.G, accent.B));
+            var fieldFocusBorder = GetCachedBrush(System.Windows.Media.Color.FromArgb(196, accentHover.R, accentHover.G, accentHover.B));
+
+            var titleText = new TextBlock
+            {
+                Text = title,
+                Foreground = titleBrush,
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            var labelText = new TextBlock
+            {
+                Text = label,
+                Foreground = hintBrush,
+                FontSize = 12.5,
+                FontWeight = FontWeights.Medium,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
             var textBox = new TextBox
             {
                 Text = initialValue,
-                MinWidth = 240,
-                Margin = new Thickness(0, 8, 0, 0),
-                Padding = new Thickness(10, 8, 10, 8)
+                MinWidth = 280,
+                Height = 38,
+                Padding = new Thickness(11, 8, 11, 8),
+                Background = fieldBackground,
+                Foreground = titleBrush,
+                BorderBrush = fieldBorder,
+                BorderThickness = new Thickness(1.2),
+                CaretBrush = titleBrush,
+                FontSize = 13.5
+            };
+            textBox.GotFocus += (_, __) =>
+            {
+                textBox.BorderBrush = fieldFocusBorder;
+            };
+            textBox.LostFocus += (_, __) =>
+            {
+                textBox.BorderBrush = fieldBorder;
             };
 
             var confirmButton = new Button
             {
                 Content = "Tamam",
-                Width = 92,
-                Height = 34,
-                Margin = new Thickness(0, 0, 8, 0)
+                Height = 38,
+                MinWidth = 118,
+                Padding = new Thickness(14, 8, 14, 8),
+                Margin = new Thickness(0, 0, 10, 0),
+                Background = GetCachedBrush(System.Windows.Media.Color.FromArgb(230, accent.R, accent.G, accent.B)),
+                Foreground = GetCachedBrush(System.Windows.Media.Color.FromArgb(242, 245, 249, 255)),
+                BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(182, accentHover.R, accentHover.G, accentHover.B)),
+                BorderThickness = new Thickness(1.0),
+                FontWeight = FontWeights.SemiBold,
+                Cursor = Cursors.Hand
             };
 
             var cancelButton = new Button
             {
-                Content = "İptal",
-                Width = 92,
-                Height = 34
+                Content = "Iptal",
+                Height = 38,
+                MinWidth = 118,
+                Padding = new Thickness(14, 8, 14, 8),
+                Background = GetCachedBrush(System.Windows.Media.Color.FromArgb(82, 255, 255, 255)),
+                Foreground = titleBrush,
+                BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(110, 255, 255, 255)),
+                BorderThickness = new Thickness(1.0),
+                FontWeight = FontWeights.Medium,
+                Cursor = Cursors.Hand
+            };
+
+            var confirmDefaultBackground = confirmButton.Background;
+            var confirmDefaultBorder = confirmButton.BorderBrush;
+            var confirmHoverBackground = GetCachedBrush(System.Windows.Media.Color.FromArgb(244, accentHover.R, accentHover.G, accentHover.B));
+            var confirmHoverBorder = GetCachedBrush(System.Windows.Media.Color.FromArgb(220, 255, 255, 255));
+            confirmButton.MouseEnter += (_, __) =>
+            {
+                confirmButton.Background = confirmHoverBackground;
+                confirmButton.BorderBrush = confirmHoverBorder;
+            };
+            confirmButton.MouseLeave += (_, __) =>
+            {
+                confirmButton.Background = confirmDefaultBackground;
+                confirmButton.BorderBrush = confirmDefaultBorder;
+            };
+
+            var cancelDefaultBackground = cancelButton.Background;
+            var cancelDefaultBorder = cancelButton.BorderBrush;
+            var cancelHoverBackground = GetCachedBrush(System.Windows.Media.Color.FromArgb(110, 255, 255, 255));
+            var cancelHoverBorder = GetCachedBrush(System.Windows.Media.Color.FromArgb(152, 255, 255, 255));
+            cancelButton.MouseEnter += (_, __) =>
+            {
+                cancelButton.Background = cancelHoverBackground;
+                cancelButton.BorderBrush = cancelHoverBorder;
+            };
+            cancelButton.MouseLeave += (_, __) =>
+            {
+                cancelButton.Background = cancelDefaultBackground;
+                cancelButton.BorderBrush = cancelDefaultBorder;
             };
 
             var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 14, 0, 0)
+                Margin = new Thickness(0, 16, 0, 0)
             };
             buttonPanel.Children.Add(confirmButton);
             buttonPanel.Children.Add(cancelButton);
 
-            var panel = new StackPanel
+            var contentPanel = new StackPanel();
+            contentPanel.Children.Add(titleText);
+            contentPanel.Children.Add(labelText);
+            contentPanel.Children.Add(textBox);
+            contentPanel.Children.Add(buttonPanel);
+
+            var card = new Border
             {
-                Margin = new Thickness(18)
+                Margin = new Thickness(16),
+                Padding = new Thickness(18, 16, 18, 16),
+                CornerRadius = new CornerRadius(14),
+                Background = GetCachedBrush(System.Windows.Media.Color.FromArgb(242, 22, 24, 30)),
+                BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(84, 255, 255, 255)),
+                BorderThickness = new Thickness(1.1),
+                Effect = CreateOptimizedShadowEffect(18, 0.28, System.Windows.Media.Color.FromArgb(255, 0, 0, 0)),
+                Child = contentPanel
             };
-            panel.Children.Add(new TextBlock
-            {
-                Text = label,
-                Foreground = GetCachedBrush(Colors.White),
-                FontSize = 13,
-                FontWeight = FontWeights.SemiBold
-            });
-            panel.Children.Add(textBox);
-            panel.Children.Add(buttonPanel);
 
             var dialog = new Window
             {
                 Title = title,
                 Owner = this,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Width = 340,
-                Height = 165,
+                Width = 430,
+                MinWidth = 390,
+                MinHeight = 220,
+                SizeToContent = SizeToContent.Height,
                 ResizeMode = ResizeMode.NoResize,
-                WindowStyle = WindowStyle.ToolWindow,
-                Background = GetCachedBrush(System.Windows.Media.Color.FromRgb(20, 22, 28)),
-                Content = panel,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                Content = card,
                 ShowInTaskbar = false
             };
 
@@ -7657,14 +9036,36 @@ namespace RadialSek.UI
                 result = textBox.Text;
                 dialog.DialogResult = true;
             };
-            cancelButton.Click += (_, __) => dialog.DialogResult = false;
+            cancelButton.Click += (_, __) =>
+            {
+                dialog.DialogResult = false;
+            };
             textBox.KeyDown += (_, e) =>
             {
                 if (e.Key == Key.Enter)
                 {
                     result = textBox.Text;
                     dialog.DialogResult = true;
+                    e.Handled = true;
                 }
+                else if (e.Key == Key.Escape)
+                {
+                    dialog.DialogResult = false;
+                    e.Handled = true;
+                }
+            };
+            dialog.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Escape)
+                {
+                    dialog.DialogResult = false;
+                    e.Handled = true;
+                }
+            };
+            dialog.Loaded += (_, __) =>
+            {
+                textBox.Focus();
+                textBox.SelectAll();
             };
 
             dialog.ShowDialog();
@@ -8980,6 +10381,10 @@ namespace RadialSek.UI
                 "ALT" => IsVirtualKeyPressed(VkMenu),
                 "SHIFT" => IsVirtualKeyPressed(VkShift),
                 "WIN" => IsVirtualKeyPressed(VkLWin) || IsVirtualKeyPressed(VkRWin),
+                "MIDDLEMOUSE" => IsVirtualKeyPressed(VkMButton),
+                "RIGHTMOUSE" => IsVirtualKeyPressed(VkRButton),
+                "XBUTTON1" => IsVirtualKeyPressed(VkXButton1),
+                "XBUTTON2" => IsVirtualKeyPressed(VkXButton2),
                 _ => IsVirtualKeyPressed(ResolveVirtualKey(trigger))
             };
         }

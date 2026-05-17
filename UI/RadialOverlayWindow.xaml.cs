@@ -373,6 +373,7 @@ namespace RadialSek.UI
         private bool _hasPendingConfigSave;
         private bool _suppressNextDismissSound;
         private bool _isDismissing;
+        private bool _isChildDialogOpen;
         private DateTime _ignoreBackdropMouseUntilUtc;
         private bool _isMonochromeSnapshotTransitionRunning;
         private bool _hasPendingMonochromeSnapshotRequest;
@@ -583,8 +584,21 @@ namespace RadialSek.UI
                         return;
                     }
 
+                    if (ShouldKeepOverlayOpenOnDeactivate())
+                    {
+                        return;
+                    }
+
                     Dismiss();
                 }));
+        }
+
+        private bool ShouldKeepOverlayOpenOnDeactivate()
+        {
+            return _isChildDialogOpen ||
+                   _isEditModeEnabled ||
+                   _itemContextMenu != null ||
+                   _pendingDragInteraction != null;
         }
 
         private void ForceReleaseInputState(string logContext)
@@ -2448,6 +2462,13 @@ namespace RadialSek.UI
             UpdateEditModeClickThroughState();
         }
 
+        private void ClearPendingDragStateAfterCaptureLoss()
+        {
+            _pendingDragInteraction = null;
+            _pendingDragSource = null;
+            UpdateEditModeClickThroughState();
+        }
+
         private void UpdateSelectionUnderCursor()
         {
             try
@@ -2841,14 +2862,6 @@ namespace RadialSek.UI
         private void SelectItem(ShapePath segment, Border iconHost, MenuItemConfig item, double startAngle, double endAngle)
         {
             CancelSubmenuCloseGrace();
-
-            if (_isAltGuideActive && _activeSubmenuInteraction != null && _activeSubmenuInteraction.Depth > 0)
-            {
-                if (IsCategoryItem(item))
-                {
-                    return;
-                }
-            }
 
             if (ReferenceEquals(_selectedItem, item) &&
                 _selectedInteraction != null &&
@@ -8771,7 +8784,8 @@ namespace RadialSek.UI
                 Owner = this
             };
 
-            if (dialog.ShowDialog() != true)
+            var accepted = ShowOwnedDialogWithoutDismissingOverlay(dialog);
+            if (accepted != true)
             {
                 return;
             }
@@ -8783,6 +8797,26 @@ namespace RadialSek.UI
             PersistMenuChanges();
             BuildMenu(_centerX, _centerY, _config);
             PlayUiSound(SoundCue.UiSelect);
+        }
+
+        private bool? ShowOwnedDialogWithoutDismissingOverlay(Window dialog)
+        {
+            _isChildDialogOpen = true;
+            SetWindowClickThrough(false);
+            try
+            {
+                return dialog.ShowDialog();
+            }
+            finally
+            {
+                _isChildDialogOpen = false;
+                UpdateBackdropInteractivity();
+                UpdateEditModeClickThroughState();
+                if (IsVisible)
+                {
+                    Activate();
+                }
+            }
         }
 
         private void PickCategorySymbolForContextMenuTarget()
@@ -8798,7 +8832,7 @@ namespace RadialSek.UI
                 Owner = this
             };
 
-            if (dialog.ShowDialog() != true)
+            if (ShowOwnedDialogWithoutDismissingOverlay(dialog) != true)
             {
                 return;
             }
@@ -9068,7 +9102,7 @@ namespace RadialSek.UI
                 textBox.SelectAll();
             };
 
-            dialog.ShowDialog();
+            ShowOwnedDialogWithoutDismissingOverlay(dialog);
             return result;
         }
 
@@ -9571,6 +9605,30 @@ namespace RadialSek.UI
             e.Handled = true;
         }
 
+        private void OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_pendingDragInteraction == null)
+            {
+                return;
+            }
+
+            ClearPendingDragState();
+            if (IsEditModifierActive())
+            {
+                e.Handled = true;
+            }
+        }
+
+        private void OnBackdropLostMouseCapture(object sender, MouseEventArgs e)
+        {
+            if (_pendingDragInteraction == null)
+            {
+                return;
+            }
+
+            ClearPendingDragStateAfterCaptureLoss();
+        }
+
         private void OnPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (_isAltGuideActive)
@@ -9631,6 +9689,18 @@ namespace RadialSek.UI
         {
             if (msg == WmNcHitTest && _isEditModeEnabled)
             {
+                var hasDragCapture = ReferenceEquals(Mouse.Captured, BackdropRoot);
+                if (_pendingDragInteraction == null && !hasDragCapture)
+                {
+                    var screenPoint = GetPointFromLParam(lParam);
+                    var localPoint = RootCanvas.PointFromScreen(screenPoint);
+                    if (!IsInteractivePoint(localPoint))
+                    {
+                        handled = true;
+                        return new IntPtr(HtTransparent);
+                    }
+                }
+
                 handled = true;
                 return new IntPtr(HtClient);
             }

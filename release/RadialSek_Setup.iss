@@ -1,6 +1,6 @@
 #define MyAppName "Radial Sek"
 #ifndef MyAppVersion
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #endif
 #define MyAppPublisher "Radial Sek"
 #define MyAppExeName "radial_sek.exe"
@@ -15,8 +15,8 @@ DefaultGroupName=Radial Sek
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=publish\sek_logo_final_2.ico
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

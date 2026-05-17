@@ -41,6 +41,7 @@ namespace RadialSek.Services
         private bool _hasLastMiddleMouseDown;
 
         public event EventHandler<ActivationEventArgs>? ActivationRequested;
+        public Func<bool>? IsMouseActivationPaused { get; set; }
 
         public GlobalInputHook()
         {
@@ -105,6 +106,11 @@ namespace RadialSek.Services
 
             var trigger = ResolveMouseTrigger(wParam, lParam);
             if (trigger == null)
+            {
+                return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+            }
+
+            if (IsMouseActivationPaused?.Invoke() == true)
             {
                 return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
             }

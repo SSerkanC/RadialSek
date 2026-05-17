@@ -28,6 +28,9 @@ namespace RadialSek
             try
             {
                 var logPath = ApplicationStorageService.GetDiagnosticLogPath();
+                var logDir = Path.GetDirectoryName(logPath);
+                if (!string.IsNullOrEmpty(logDir) && !Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+
                 var content =
                     "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + context + Environment.NewLine +
                     exception + Environment.NewLine + Environment.NewLine;

@@ -23,13 +23,8 @@ jobs:
           dotnet-version: "5.0.x"
 
       - name: Publish app
-        run: >
-          dotnet publish radial_sek.csproj
-          -c Release
-          -r win-x64
-          --self-contained true
-          -o release/publish
-          /p:PublishSingleFile=false
+        shell: pwsh
+        run: .\release\publish_release.ps1
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
@@ -40,7 +35,12 @@ jobs:
         run: |
           $refType = "${{ github.ref_type }}"
           $refName = "${{ github.ref_name }}"
-          $version = "1.0.0"
+          [xml]$projectXml = Get-Content "radial_sek.csproj"
+          $version = $projectXml.Project.PropertyGroup.Version | Select-Object -First 1
+
+          if (-not $version) {
+            throw "Project version not found in radial_sek.csproj"
+          }
 
           if ($refType -eq "tag" -and $refName) {
             if ($refName.StartsWith("v")) {
@@ -55,18 +55,7 @@ jobs:
 
       - name: Build installer
         shell: pwsh
-        run: |
-          $possibleIscc = @(
-            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-            "C:\Program Files\Inno Setup 6\ISCC.exe"
-          )
-          $iscc = $possibleIscc | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-          if (-not $iscc) {
-            throw "ISCC.exe bulunamadi."
-          }
-
-          & $iscc "/DMyAppVersion=${{ steps.version.outputs.value }}" "release\RadialSek_Setup.iss"
+        run: .\release\build_installer.ps1 -Version "${{ steps.version.outputs.value }}"
 
       - name: Create stable latest installer filename
         shell: pwsh

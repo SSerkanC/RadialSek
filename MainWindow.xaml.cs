@@ -30,6 +30,7 @@ namespace RadialSek
         private readonly DispatcherTimer _lightIdleTimer;
         private DateTime _lastMenuInteractionUtc;
         private bool _isOverlayTransitionInProgress;
+        private volatile bool _isOverlayInputActive;
 
         public MainWindow()
         {
@@ -38,6 +39,7 @@ namespace RadialSek
             _configService = new MenuConfigService();
             _launcherService = new LauncherService();
             _inputHook = new GlobalInputHook();
+            _inputHook.IsMouseActivationPaused = () => _isOverlayInputActive;
             _currentConfig = _configService.LoadConfig();
             _soundManager = SoundManager.Instance;
             _notifyIconAsset = (DrawingIcon)System.Drawing.SystemIcons.Application.Clone();
@@ -83,8 +85,9 @@ namespace RadialSek
                 _notifyIcon.Icon = _notifyIconAsset;
                 previousIcon.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                WriteDiagnosticLog("Özel tray ikonu uygulanırken hata oluştu, varsayılan ikon kullanılıyor.", ex);
             }
         }
 
@@ -225,6 +228,7 @@ namespace RadialSek
                 _overlay.MenuDismissed -= OnOverlayMenuDismissed;
                 _overlay.DisposeWindow();
                 _overlay = null;
+                _isOverlayInputActive = false;
             }
 
             _currentConfig = _configService.LoadConfig();
@@ -278,6 +282,7 @@ namespace RadialSek
                         }
 
                         _overlay.ReopenAt(screenX, screenY);
+                        _isOverlayInputActive = true;
                         return;
                     }
 
@@ -289,6 +294,7 @@ namespace RadialSek
                         _configService);
                     _overlay.MenuDismissed += OnOverlayMenuDismissed;
                     _overlay.ReopenAt(screenX, screenY);
+                    _isOverlayInputActive = true;
                 }
                 catch (Exception ex)
                 {
@@ -329,6 +335,7 @@ namespace RadialSek
                     _overlay.ReleaseInputFailSafe("OpenMenuRecover");
                     _overlay.DisposeWindow();
                     _overlay = null;
+                    _isOverlayInputActive = false;
                 }
             }
             catch (Exception cleanupEx)
@@ -346,6 +353,7 @@ namespace RadialSek
                     _configService);
                 _overlay.MenuDismissed += OnOverlayMenuDismissed;
                 _overlay.ReopenAt(screenX, screenY);
+                _isOverlayInputActive = true;
                 WriteDiagnosticLog("Overlay açılış fallback ile toparlandı", rootException);
                 return true;
             }
@@ -361,6 +369,9 @@ namespace RadialSek
             try
             {
                 var logPath = ApplicationStorageService.GetDiagnosticLogPath();
+                var logDir = Path.GetDirectoryName(logPath);
+                if (!string.IsNullOrEmpty(logDir) && !Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+
                 var content =
                     "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + message + Environment.NewLine +
                     ex + Environment.NewLine + Environment.NewLine;
@@ -380,6 +391,7 @@ namespace RadialSek
 
         private void OnOverlayMenuDismissed(object? sender, EventArgs e)
         {
+            _isOverlayInputActive = false;
             MarkMenuInteraction();
         }
 
@@ -430,6 +442,7 @@ namespace RadialSek
             _overlay.MenuDismissed -= OnOverlayMenuDismissed;
             _overlay.DisposeWindow();
             _overlay = null;
+            _isOverlayInputActive = false;
             RadialOverlayWindow.ReleaseIdleResources();
             System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -460,6 +473,7 @@ namespace RadialSek
             }
             _overlay?.DisposeWindow();
             _overlay = null;
+            _isOverlayInputActive = false;
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _notifyIconAsset.Dispose();
@@ -504,4 +518,3 @@ namespace RadialSek
         private static extern bool EmptyWorkingSet(IntPtr hProcess);
     }
 }
-

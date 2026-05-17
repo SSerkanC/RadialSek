@@ -11,10 +11,10 @@
     <Company>Radial Sek</Company>
     <Product>Radial Sek</Product>
     <AssemblyTitle>Radial Sek</AssemblyTitle>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
     <ApplicationIcon>sek_logo_final_2.ico</ApplicationIcon>
   </PropertyGroup>
 

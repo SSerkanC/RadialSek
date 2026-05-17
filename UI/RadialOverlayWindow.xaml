@@ -18,10 +18,12 @@
           PreviewDrop="OnPreviewDrop"
           PreviewKeyDown="OnPreviewKeyDown"
           PreviewMouseLeftButtonDown="OnPreviewMouseLeftButtonDown"
+          PreviewMouseLeftButtonUp="OnPreviewMouseLeftButtonUp"
           PreviewMouseRightButtonDown="OnPreviewMouseRightButtonDown"
           PreviewMouseMove="OnPreviewMouseMove"
           PreviewMouseWheel="OnPreviewMouseWheel"
-          MouseDown="OnBackdropMouseDown">
+          MouseDown="OnBackdropMouseDown"
+          LostMouseCapture="OnBackdropLostMouseCapture">
         <Image x:Name="MonochromeBackdropImage"
                Visibility="Collapsed"
                Stretch="Fill"

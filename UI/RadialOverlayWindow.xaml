@@ -12,7 +12,6 @@
         WindowStartupLocation="Manual"
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType"
-        RenderOptions.BitmapScalingMode="HighSpeed"
         RenderOptions.ClearTypeHint="Enabled"
         PreviewKeyDown="OnPreviewKeyDown">
     <Grid x:Name="BackdropRoot"

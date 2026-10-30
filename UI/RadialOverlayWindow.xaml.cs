@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -362,6 +362,8 @@ namespace RadialSek.UI
         private bool _isTargetingCursorHidden;
         private bool _wasAltPressed;
         private bool _wasShiftPressed;
+        private bool _wasEscapePressed;
+        private DateTime _lastOpenedUtc;
         private MenuItemConfig? _selectedItem;
         private DragItemInteraction? _pendingDragInteraction;
         private DependencyObject? _pendingDragSource;
@@ -457,6 +459,8 @@ namespace RadialSek.UI
         private const uint SwpNoZOrder = 0x0004;
         private const uint SwpNoActivate = 0x0010;
         private const uint SwpFrameChanged = 0x0020;
+        private static readonly IntPtr HwndTopMost = new IntPtr(-1);
+        private const int VkEscape = 0x1B;
         private const int VkShift = 0x10;
         private const int VkControl = 0x11;
         private const int VkMenu = 0x12;
@@ -563,9 +567,129 @@ namespace RadialSek.UI
 
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
-            _hwndSource = (HwndSource?)PresentationSource.FromVisual(this);
-            _hwndSource?.AddHook(WndProc);
+            AttachHwndSourceIfNeeded();
             SetWindowClickThrough(false);
+        }
+
+        private IntPtr AttachHwndSourceIfNeeded()
+        {
+            var hwnd = new WindowInteropHelper(this).EnsureHandle();
+            if (_hwndSource == null && hwnd != IntPtr.Zero)
+            {
+                _hwndSource = HwndSource.FromHwnd(hwnd) ?? (HwndSource?)PresentationSource.FromVisual(this);
+                _hwndSource?.AddHook(WndProc);
+            }
+
+            return hwnd;
+        }
+
+        private (double ScaleX, double ScaleY) GetWindowDpiScale()
+        {
+            try
+            {
+                var source = _hwndSource ?? PresentationSource.FromVisual(this);
+                if (source?.CompositionTarget != null)
+                {
+                    var matrix = source.CompositionTarget.TransformToDevice;
+                    if (matrix.M11 > 0.01 && matrix.M22 > 0.01)
+                    {
+                        return (matrix.M11, matrix.M22);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var dpi = VisualTreeHelper.GetDpi(this);
+                if (dpi.DpiScaleX > 0.01 && dpi.DpiScaleY > 0.01)
+                {
+                    return (dpi.DpiScaleX, dpi.DpiScaleY);
+                }
+            }
+            catch
+            {
+            }
+
+            return (1.0, 1.0);
+        }
+
+        private void PositionWindowAcrossVirtualScreen(
+            double screenPixelX,
+            double screenPixelY,
+            out WpfPoint localCenterPoint)
+        {
+            var resolvedScreenX = screenPixelX;
+            var resolvedScreenY = screenPixelY;
+            if (double.IsNaN(resolvedScreenX) || double.IsInfinity(resolvedScreenX) ||
+                double.IsNaN(resolvedScreenY) || double.IsInfinity(resolvedScreenY))
+            {
+                if (GetCursorPos(out var p))
+                {
+                    resolvedScreenX = p.X;
+                    resolvedScreenY = p.Y;
+                }
+                else
+                {
+                    var fallback = System.Windows.Forms.Cursor.Position;
+                    resolvedScreenX = fallback.X;
+                    resolvedScreenY = fallback.Y;
+                }
+            }
+
+            var hwnd = AttachHwndSourceIfNeeded();
+            if (WindowState != WindowState.Normal)
+            {
+                WindowState = WindowState.Normal;
+            }
+
+            var virtualLeft = SystemParameters.VirtualScreenLeft;
+            var virtualTop = SystemParameters.VirtualScreenTop;
+            var virtualWidth = Math.Max(320.0, SystemParameters.VirtualScreenWidth);
+            var virtualHeight = Math.Max(240.0, SystemParameters.VirtualScreenHeight);
+
+            Left = virtualLeft;
+            Top = virtualTop;
+            Width = virtualWidth;
+            Height = virtualHeight;
+            if (RootCanvas != null)
+            {
+                RootCanvas.Width = virtualWidth;
+                RootCanvas.Height = virtualHeight;
+            }
+
+            if (hwnd != IntPtr.Zero)
+            {
+                SetWindowPos(
+                    hwnd,
+                    HwndTopMost,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SwpNoMove | SwpNoSize | SwpNoActivate | SwpFrameChanged);
+            }
+
+            var source = _hwndSource ?? (HwndSource?)PresentationSource.FromVisual(this);
+            WpfPoint dipPoint;
+            if (source?.CompositionTarget != null)
+            {
+                dipPoint = source.CompositionTarget.TransformFromDevice.Transform(
+                    new WpfPoint(resolvedScreenX, resolvedScreenY));
+            }
+            else
+            {
+                var (dpiScaleX, dpiScaleY) = GetWindowDpiScale();
+                dipPoint = new WpfPoint(resolvedScreenX / dpiScaleX, resolvedScreenY / dpiScaleY);
+            }
+
+            var localX = dipPoint.X - virtualLeft;
+            var localY = dipPoint.Y - virtualTop;
+            localX = Math.Max(0.0, Math.Min(virtualWidth, localX));
+            localY = Math.Max(0.0, Math.Min(virtualHeight, localY));
+            localCenterPoint = new WpfPoint(localX, localY);
         }
 
         private void OnWindowDeactivated(object? sender, EventArgs e)
@@ -645,29 +769,63 @@ namespace RadialSek.UI
 
         public void ReopenAt(double centerX, double centerY)
         {
-            var wasVisible = IsVisible;
-            ResetTransientStateForReuse();
-            BuildMenu(centerX, centerY, _config);
-            _ignoreBackdropMouseUntilUtc = DateTime.UtcNow + BackdropClickGraceDelay;
-            BeginAnimation(OpacityProperty, null);
-            RootCanvas.BeginAnimation(OpacityProperty, null);
-            Opacity = 0.0;
-            RootCanvas.Opacity = 0.0;
-
-            if (!IsVisible)
+            try
             {
-                Show();
-            }
+                var wasVisible = IsVisible;
+                ResetTransientStateForReuse();
+                PositionWindowAcrossVirtualScreen(centerX, centerY, out var localCenter);
+                BuildMenu(localCenter.X, localCenter.Y, _config);
+                _lastOpenedUtc = DateTime.UtcNow;
+                _ignoreBackdropMouseUntilUtc = DateTime.UtcNow + BackdropClickGraceDelay;
+                BeginAnimation(OpacityProperty, null);
+                RootCanvas.BeginAnimation(OpacityProperty, null);
+                Opacity = 0.0;
+                RootCanvas.Opacity = 0.0;
 
-            if (wasVisible && _features.EnableMonochromeBackdrop)
+                if (!IsVisible)
+                {
+                    Show();
+                }
+
+                var hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hwnd != IntPtr.Zero)
+                {
+                    SetWindowPos(
+                        hwnd,
+                        HwndTopMost,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SwpNoMove | SwpNoSize | SwpNoActivate | SwpFrameChanged);
+                }
+
+                if (wasVisible && _features.EnableMonochromeBackdrop)
+                {
+                    _prepareForDisplayDelayTimer.Stop();
+                    _prepareForDisplayDelayTimer.Interval = MonochromeBackdropCaptureDelay;
+                    _prepareForDisplayDelayTimer.Start();
+                    return;
+                }
+
+                FinalizePrepareForDisplay();
+            }
+            catch
             {
-                _prepareForDisplayDelayTimer.Stop();
-                _prepareForDisplayDelayTimer.Interval = MonochromeBackdropCaptureDelay;
-                _prepareForDisplayDelayTimer.Start();
-                return;
-            }
+                try
+                {
+                    if (IsVisible)
+                    {
+                        Hide();
+                    }
+                }
+                catch
+                {
+                }
 
-            FinalizePrepareForDisplay();
+                ForceReleaseInputState("ReopenAt hata sonrasi fail-safe");
+                throw;
+            }
         }
 
         public void Dismiss()
@@ -848,16 +1006,30 @@ namespace RadialSek.UI
             }
         }
 
-        public static void ReleaseIdleResources()
+        public void TrimForLightIdle()
         {
-            lock (IconCache)
+            if (IsVisible)
             {
-                IconCache.Clear();
-                IconCacheNodes.Clear();
-                IconCacheUsage.Clear();
-                ExtensionIconCache.Clear();
+                return;
             }
 
+            FlushPendingChanges();
+            ReleaseInputFailSafe("TrimForLightIdle");
+            ResetTransientStateForReuse();
+            RootCanvas.Children.Clear();
+            _segments.Clear();
+            _submenuLayers.Clear();
+            _segmentBrushes.Clear();
+            _segmentInteractions.Clear();
+            _iconInteractions.Clear();
+            _dragInteractions.Clear();
+            _hoverInteractions.Clear();
+            _hoverInteractionEntries.Clear();
+            _centerTextAnimationVersions.Clear();
+        }
+
+        public static void ReleaseIdleResources()
+        {
             FrozenBrushCache.Clear();
             FrozenTwoStopGradientBrushCache.Clear();
             FrozenThreeStopGradientBrushCache.Clear();
@@ -903,9 +1075,33 @@ namespace RadialSek.UI
         private void FinalizePrepareForDisplay()
         {
             PrepareForDisplay();
-            Activate();
-            Focus();
-            Keyboard.Focus(BackdropRoot);
+            ForceActivateOverlayWindow();
+        }
+
+        private void ForceActivateOverlayWindow()
+        {
+            try
+            {
+                var hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hwnd != IntPtr.Zero)
+                {
+                    BringWindowToTop(hwnd);
+                    SetForegroundWindow(hwnd);
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                Activate();
+                Focus();
+                Keyboard.Focus(BackdropRoot);
+            }
+            catch
+            {
+            }
         }
 
         private void OnPrepareForDisplayDelayTimerTick(object? sender, EventArgs e)
@@ -930,6 +1126,7 @@ namespace RadialSek.UI
             _centerClockTimer.Stop();
             _centerCountdownRingTimer.Stop();
             StopWeatherVisuals();
+            _isPaging = false;
             _centerCountdownRingRevealNotBeforeUtc = DateTime.MinValue;
             _isMonochromeSnapshotTransitionRunning = false;
             _hasPendingMonochromeSnapshotRequest = false;
@@ -946,6 +1143,7 @@ namespace RadialSek.UI
             _dragHoverOpenedFromDepth = 0;
             _wasAltPressed = false;
             _wasShiftPressed = false;
+            _wasEscapePressed = false;
             _isAltGuideActive = false;
             SetTargetingCursorHidden(false);
             HideAltGuideLine();
@@ -960,6 +1158,7 @@ namespace RadialSek.UI
         private void SyncModifierStateSnapshot()
         {
             _wasShiftPressed = (GetAsyncKeyState(VkShift) & 0x8000) != 0;
+            _wasEscapePressed = (GetAsyncKeyState(VkEscape) & 0x8000) != 0;
             _wasAltPressed = IsTargetingShortcutPressed();
         }
 
@@ -7107,6 +7306,25 @@ namespace RadialSek.UI
         [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int vKey);
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativePoint
+        {
+            public int X;
+            public int Y;
+        }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetCursorPos(out NativePoint lpPoint);
+
         [StructLayout(LayoutKind.Sequential)]
         private struct NativeRect
         {
@@ -7156,8 +7374,60 @@ namespace RadialSek.UI
 
         private void PollModifierState()
         {
+            if (!IsVisible || _isDismissing)
+            {
+                return;
+            }
+
+            if (!_prepareForDisplayDelayTimer.IsEnabled &&
+                (DateTime.UtcNow - _lastOpenedUtc).TotalMilliseconds > 450)
+            {
+                if (Opacity < 0.1)
+                {
+                    BeginAnimation(OpacityProperty, null);
+                    Opacity = 1.0;
+                }
+
+                if (!_isPaging && RootCanvas != null && RootCanvas.Opacity < 0.1)
+                {
+                    RootCanvas.BeginAnimation(OpacityProperty, null);
+                    RootCanvas.Opacity = 1.0;
+                }
+            }
+
+            var isEscapePressed = (GetAsyncKeyState(VkEscape) & 0x8000) != 0;
+            if (isEscapePressed && !_wasEscapePressed && !_isChildDialogOpen)
+            {
+                _wasEscapePressed = true;
+                if (_itemContextMenu != null)
+                {
+                    HideItemContextMenu();
+                    return;
+                }
+
+                if (_isEditModeEnabled)
+                {
+                    ToggleEditMode();
+                    return;
+                }
+
+                Dismiss();
+                return;
+            }
+
+            _wasEscapePressed = isEscapePressed;
+
             var isShiftPressed = (GetAsyncKeyState(VkShift) & 0x8000) != 0;
-            if (isShiftPressed && !_wasShiftPressed)
+            var hasOtherModifier =
+                IsVirtualKeyPressed(VkControl) ||
+                IsVirtualKeyPressed(VkMenu) ||
+                IsVirtualKeyPressed(VkLWin) ||
+                IsVirtualKeyPressed(VkRWin);
+            if (isShiftPressed &&
+                !_wasShiftPressed &&
+                !hasOtherModifier &&
+                IsActive &&
+                !_isChildDialogOpen)
             {
                 ToggleEditMode();
             }
@@ -7619,10 +7889,32 @@ namespace RadialSek.UI
                     return true;
                 }
 
-                current = VisualTreeHelper.GetParent(current);
+                current = GetSafeParentObject(current);
             }
 
             return false;
+        }
+
+        private static DependencyObject? GetSafeParentObject(DependencyObject? current)
+        {
+            if (current == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                if (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+                {
+                    return VisualTreeHelper.GetParent(current);
+                }
+
+                return LogicalTreeHelper.GetParent(current);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private void ShowUtilityDockContextMenu()
@@ -9142,14 +9434,10 @@ namespace RadialSek.UI
 
         private void SetWindowClickThrough(bool enabled)
         {
-            if (_isWindowClickThroughEnabled == enabled)
-            {
-                return;
-            }
-
             var windowHandle = _hwndSource?.Handle ?? IntPtr.Zero;
             if (windowHandle == IntPtr.Zero)
             {
+                _isWindowClickThroughEnabled = false;
                 return;
             }
 
@@ -9541,68 +9829,93 @@ namespace RadialSek.UI
 
         private void OnBackdropMouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (DateTime.UtcNow < _ignoreBackdropMouseUntilUtc)
+            try
             {
-                e.Handled = true;
-                return;
-            }
+                if (DateTime.UtcNow < _ignoreBackdropMouseUntilUtc)
+                {
+                    e.Handled = true;
+                    return;
+                }
 
-            var position = e.GetPosition(RootCanvas);
-            var isBackgroundClick = e.OriginalSource == sender || !IsInteractivePoint(position);
-            if (!isBackgroundClick)
-            {
-                return;
-            }
-
-            if (_itemContextMenu != null)
-            {
-                HideItemContextMenu();
-                e.Handled = true;
-                return;
-            }
-
-            if (IsEditModifierActive())
-            {
-                e.Handled = true;
-                return;
-            }
-
-            Dismiss();
-            e.Handled = true;
-        }
-
-        private void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (_isOdakKaskadiAnimationActive)
-            {
-                EnsureOdakKaskadiAnimationSettled();
-            }
-
-            if (_itemContextMenu == null)
-            {
-                if (DateTime.UtcNow < _ignoreBackdropMouseUntilUtc || IsEditModifierActive())
+                var position = e.GetPosition(RootCanvas);
+                var isBackgroundClick = e.OriginalSource == sender || !IsInteractivePoint(position);
+                if (!isBackgroundClick)
                 {
                     return;
                 }
 
-                var point = e.GetPosition(RootCanvas);
-                if (!IsInteractivePoint(point))
+                if (_itemContextMenu != null)
                 {
-                    Dismiss();
+                    HideItemContextMenu();
                     e.Handled = true;
+                    return;
                 }
 
-                return;
-            }
+                if (IsEditModifierActive())
+                {
+                    UpdateEditModeClickThroughState();
+                    e.Handled = true;
+                    return;
+                }
 
-            var source = e.OriginalSource as DependencyObject;
-            if (IsWithinItemContextMenu(source) || IsWithinUtilityDockButton(source))
+                Dismiss();
+                e.Handled = true;
+            }
+            catch (Exception ex)
             {
-                return;
+                LogUiException("OnBackdropMouseDown sirasinda hata", ex);
+                Dismiss();
+                e.Handled = true;
             }
+        }
 
-            HideItemContextMenu();
-            e.Handled = true;
+        private void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (_isOdakKaskadiAnimationActive)
+                {
+                    EnsureOdakKaskadiAnimationSettled();
+                }
+
+                if (_itemContextMenu == null)
+                {
+                    if (DateTime.UtcNow < _ignoreBackdropMouseUntilUtc)
+                    {
+                        return;
+                    }
+
+                    var point = e.GetPosition(RootCanvas);
+                    if (!IsInteractivePoint(point))
+                    {
+                        if (IsEditModifierActive())
+                        {
+                            UpdateEditModeClickThroughState();
+                            return;
+                        }
+
+                        Dismiss();
+                        e.Handled = true;
+                    }
+
+                    return;
+                }
+
+                var source = e.OriginalSource as DependencyObject;
+                if (IsWithinItemContextMenu(source) || IsWithinUtilityDockButton(source))
+                {
+                    return;
+                }
+
+                HideItemContextMenu();
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                LogUiException("OnPreviewMouseLeftButtonDown sirasinda hata", ex);
+                Dismiss();
+                e.Handled = true;
+            }
         }
 
         private void OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -9679,7 +9992,7 @@ namespace RadialSek.UI
                     return true;
                 }
 
-                current = VisualTreeHelper.GetParent(current);
+                current = GetSafeParentObject(current);
             }
 
             return false;
@@ -9693,7 +10006,7 @@ namespace RadialSek.UI
                 if (_pendingDragInteraction == null && !hasDragCapture)
                 {
                     var screenPoint = GetPointFromLParam(lParam);
-                    var localPoint = RootCanvas.PointFromScreen(screenPoint);
+                    var localPoint = SafeScreenPointToRootCanvas(screenPoint);
                     if (!IsInteractivePoint(localPoint))
                     {
                         handled = true;
@@ -9718,39 +10031,50 @@ namespace RadialSek.UI
 
         private bool IsInteractivePoint(WpfPoint point)
         {
-            if (FindHoverInteractionAtPoint(point) != null)
+            try
             {
-                return true;
-            }
-
-            if (IsPointInsideElementBounds(_centerPanel, point) ||
-                IsPointInsideElementBounds(_categoryNameStrip, point) ||
-                IsPointInsideElementBounds(_itemContextMenu, point))
-            {
-                return true;
-            }
-
-            var hit = VisualTreeHelper.HitTest(RootCanvas, point);
-            if (hit?.VisualHit == null)
-            {
-                return false;
-            }
-
-            DependencyObject? current = hit.VisualHit;
-            while (current != null)
-            {
-                if (_dragInteractions.ContainsKey(current) ||
-                    (current is ShapePath path && _segmentInteractions.ContainsKey(path)) ||
-                    (current is Border border && _iconInteractions.ContainsKey(border)) ||
-                    ReferenceEquals(current, _centerPanel) ||
-                    ReferenceEquals(current, _utilityDockButton) ||
-                    ReferenceEquals(current, _utilityDockButtonCore) ||
-                    ReferenceEquals(current, _itemContextMenu))
+                if (FindHoverInteractionAtPoint(point) != null)
                 {
                     return true;
                 }
 
-                current = VisualTreeHelper.GetParent(current);
+                if (IsPointInsideElementBounds(_centerPanel, point) ||
+                    IsPointInsideElementBounds(_categoryNameStrip, point) ||
+                    IsPointInsideElementBounds(_itemContextMenu, point))
+                {
+                    return true;
+                }
+
+                if (RootCanvas == null)
+                {
+                    return false;
+                }
+
+                var hit = VisualTreeHelper.HitTest(RootCanvas, point);
+                if (hit?.VisualHit == null)
+                {
+                    return false;
+                }
+
+                DependencyObject? current = hit.VisualHit;
+                while (current != null)
+                {
+                    if (_dragInteractions.ContainsKey(current) ||
+                        (current is ShapePath path && _segmentInteractions.ContainsKey(path)) ||
+                        (current is Border border && _iconInteractions.ContainsKey(border)) ||
+                        ReferenceEquals(current, _centerPanel) ||
+                        ReferenceEquals(current, _utilityDockButton) ||
+                        ReferenceEquals(current, _utilityDockButtonCore) ||
+                        ReferenceEquals(current, _itemContextMenu))
+                    {
+                        return true;
+                    }
+
+                    current = GetSafeParentObject(current);
+                }
+            }
+            catch
+            {
             }
 
             return false;
@@ -10093,8 +10417,39 @@ namespace RadialSek.UI
                 return new WpfPoint();
             }
 
+            if (GetCursorPos(out var p))
+            {
+                return SafeScreenPointToRootCanvas(new WpfPoint(p.X, p.Y));
+            }
+
             var cursor = System.Windows.Forms.Cursor.Position;
-            return RootCanvas.PointFromScreen(new WpfPoint(cursor.X, cursor.Y));
+            return SafeScreenPointToRootCanvas(new WpfPoint(cursor.X, cursor.Y));
+        }
+
+        private WpfPoint SafeScreenPointToRootCanvas(WpfPoint screenPoint)
+        {
+            try
+            {
+                var source = _hwndSource ?? (HwndSource?)PresentationSource.FromVisual(this);
+                if (source?.CompositionTarget != null)
+                {
+                    var dipPoint = source.CompositionTarget.TransformFromDevice.Transform(screenPoint);
+                    return new WpfPoint(dipPoint.X - Left, dipPoint.Y - Top);
+                }
+
+                if (RootCanvas != null && PresentationSource.FromVisual(RootCanvas) != null)
+                {
+                    return RootCanvas.PointFromScreen(screenPoint);
+                }
+
+                var (dpiScaleX, dpiScaleY) = GetWindowDpiScale();
+                return new WpfPoint((screenPoint.X / dpiScaleX) - Left, (screenPoint.Y / dpiScaleY) - Top);
+            }
+            catch
+            {
+            }
+
+            return new WpfPoint(_centerX, _centerY);
         }
 
         private void PlayUiSound(SoundCue cue)

@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using RadialSek.Models;
 using Forms = System.Windows.Forms;
 using DrawingBitmap = System.Drawing.Bitmap;
@@ -30,6 +31,7 @@ namespace RadialSek
         private readonly DispatcherTimer _lightIdleTimer;
         private DateTime _lastMenuInteractionUtc;
         private bool _isOverlayTransitionInProgress;
+        private bool _isInLightIdleMode;
         private volatile bool _isOverlayInputActive;
 
         public MainWindow()
@@ -39,7 +41,7 @@ namespace RadialSek
             _configService = new MenuConfigService();
             _launcherService = new LauncherService();
             _inputHook = new GlobalInputHook();
-            _inputHook.IsMouseActivationPaused = () => _isOverlayInputActive;
+            _inputHook.IsMouseActivationPaused = () => _isOverlayInputActive && _overlay?.IsVisible == true;
             _currentConfig = _configService.LoadConfig();
             _soundManager = SoundManager.Instance;
             _notifyIconAsset = (DrawingIcon)System.Drawing.SystemIcons.Application.Clone();
@@ -71,8 +73,89 @@ namespace RadialSek
             _inputHook.SetProgramEnabled(_isProgramEnabled);
             _inputHook.ActivationRequested += OnActivationRequested;
             _inputHook.Start();
+            SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
+            SystemEvents.DisplaySettingsChanged += OnSystemDisplaySettingsChanged;
+            SystemEvents.SessionSwitch += OnSystemSessionSwitch;
             TryApplyCustomTrayIcon();
             Dispatcher.BeginInvoke(new Action(PrewarmOverlayWindow), DispatcherPriority.ApplicationIdle);
+        }
+
+        private void OnSystemPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.Send,
+                new Action(() =>
+                {
+                    if (e.Mode == PowerModes.Suspend)
+                    {
+                        _inputHook.ResetState();
+                        DisposeOverlayInstance("SystemSuspend");
+                        return;
+                    }
+
+                    if (e.Mode == PowerModes.Resume)
+                    {
+                        DisposeOverlayInstance("SystemResume");
+                        _inputHook.Restart();
+                        MarkMenuInteraction();
+                    }
+                }));
+        }
+
+        private void OnSystemDisplaySettingsChanged(object? sender, EventArgs e)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.Send,
+                new Action(() =>
+                {
+                    DisposeOverlayInstance("DisplaySettingsChanged");
+                    _inputHook.ResetState();
+                    MarkMenuInteraction();
+                }));
+        }
+
+        private void OnSystemSessionSwitch(object sender, SessionSwitchEventArgs e)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.Send,
+                new Action(() =>
+                {
+                    DisposeOverlayInstance("SessionSwitch");
+                    if (e.Reason == SessionSwitchReason.SessionUnlock ||
+                        e.Reason == SessionSwitchReason.ConsoleConnect ||
+                        e.Reason == SessionSwitchReason.RemoteConnect)
+                    {
+                        _inputHook.Restart();
+                    }
+                    else
+                    {
+                        _inputHook.ResetState();
+                    }
+
+                    MarkMenuInteraction();
+                }));
+        }
+
+        private void DisposeOverlayInstance(string reason)
+        {
+            _isOverlayInputActive = false;
+            if (_overlay == null)
+            {
+                return;
+            }
+
+            var instance = _overlay;
+            _overlay = null;
+            try
+            {
+                instance.MenuDismissed -= OnOverlayMenuDismissed;
+                instance.ReleaseInputFailSafe(reason);
+                instance.DisposeWindow();
+            }
+            catch (Exception ex)
+            {
+                WriteDiagnosticLog("Overlay temizlenirken hata (" + reason + ")", ex);
+            }
         }
 
         private void TryApplyCustomTrayIcon()
@@ -116,18 +199,27 @@ namespace RadialSek
 
         private void OnActivationRequested(object? sender, ActivationEventArgs e)
         {
-            if (e.ShortcutId == ActivationShortcut.ToggleProgramShortcutId)
-            {
-                ToggleProgramEnabled();
-                return;
-            }
+            var shortcutId = e.ShortcutId;
+            var screenX = e.ScreenX;
+            var screenY = e.ScreenY;
 
-            if (!_isProgramEnabled)
-            {
-                return;
-            }
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.Input,
+                new Action(() =>
+                {
+                    if (shortcutId == ActivationShortcut.ToggleProgramShortcutId)
+                    {
+                        ToggleProgramEnabled();
+                        return;
+                    }
 
-            OpenMenuAt(e.ScreenX, e.ScreenY);
+                    if (!_isProgramEnabled)
+                    {
+                        return;
+                    }
+
+                    OpenMenuAt(screenX, screenY);
+                }));
         }
 
         private Forms.NotifyIcon CreateNotifyIcon()
@@ -327,21 +419,7 @@ namespace RadialSek
 
         private bool TryRecoverOverlayAfterOpenFailure(double screenX, double screenY, Exception rootException)
         {
-            try
-            {
-                if (_overlay != null)
-                {
-                    _overlay.MenuDismissed -= OnOverlayMenuDismissed;
-                    _overlay.ReleaseInputFailSafe("OpenMenuRecover");
-                    _overlay.DisposeWindow();
-                    _overlay = null;
-                    _isOverlayInputActive = false;
-                }
-            }
-            catch (Exception cleanupEx)
-            {
-                WriteDiagnosticLog("Overlay recovery temizliği sırasında hata", cleanupEx);
-            }
+            DisposeOverlayInstance("OpenMenuRecover");
 
             try
             {
@@ -360,6 +438,7 @@ namespace RadialSek
             catch (Exception retryEx)
             {
                 WriteDiagnosticLog("Overlay açılırken hata (yeniden oluşturma denemesi)", retryEx);
+                DisposeOverlayInstance("OpenMenuRecoverFailed");
                 return false;
             }
         }
@@ -398,6 +477,7 @@ namespace RadialSek
         private void MarkMenuInteraction()
         {
             _lastMenuInteractionUtc = DateTime.UtcNow;
+            _isInLightIdleMode = false;
         }
 
         private bool IsLightIdleModeEnabled()
@@ -414,7 +494,13 @@ namespace RadialSek
 
         private void OnLightIdleTimerTick(object? sender, EventArgs e)
         {
+            if (_overlay != null && !_overlay.IsVisible && _isOverlayInputActive)
+            {
+                _isOverlayInputActive = false;
+            }
+
             if (!IsLightIdleModeEnabled() ||
+                _isInLightIdleMode ||
                 _overlay == null ||
                 _overlay.IsVisible ||
                 _isOverlayTransitionInProgress ||
@@ -438,42 +524,30 @@ namespace RadialSek
                 return;
             }
 
-            _overlay.ReleaseInputFailSafe("LightIdleMode");
-            _overlay.MenuDismissed -= OnOverlayMenuDismissed;
-            _overlay.DisposeWindow();
-            _overlay = null;
+            _isInLightIdleMode = true;
             _isOverlayInputActive = false;
-            RadialOverlayWindow.ReleaseIdleResources();
-            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-            GC.WaitForPendingFinalizers();
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-            TrimProcessWorkingSet();
-            _lastMenuInteractionUtc = DateTime.UtcNow;
-        }
-
-        private static void TrimProcessWorkingSet()
-        {
             try
             {
-                using var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
-                EmptyWorkingSet(currentProcess.Handle);
+                _overlay.TrimForLightIdle();
             }
-            catch
+            catch (Exception ex)
             {
+                WriteDiagnosticLog("Hafif bekleme moduna geçilirken hata", ex);
+                DisposeOverlayInstance("LightIdleModeFallback");
             }
+
+            RadialOverlayWindow.ReleaseIdleResources();
+            GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
+            _lastMenuInteractionUtc = DateTime.UtcNow;
         }
 
         private void OnClosed(object? sender, EventArgs e)
         {
             _lightIdleTimer.Stop();
-            if (_overlay != null)
-            {
-                _overlay.MenuDismissed -= OnOverlayMenuDismissed;
-            }
-            _overlay?.DisposeWindow();
-            _overlay = null;
-            _isOverlayInputActive = false;
+            SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
+            SystemEvents.DisplaySettingsChanged -= OnSystemDisplaySettingsChanged;
+            SystemEvents.SessionSwitch -= OnSystemSessionSwitch;
+            DisposeOverlayInstance("MainWindowClosed");
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _notifyIconAsset.Dispose();

@@ -76,8 +76,25 @@ namespace RadialSek.Services
             _keyboardHookHandle = SetWindowsHookEx(WhKeyboardLl, _keyboardProc, moduleHandle, 0);
         }
 
+        public void ResetState()
+        {
+            _suppressedMouseUpTriggers.Clear();
+            ResetMiddleMouseDoubleState();
+            _lastActivationUtc = DateTime.MinValue;
+        }
+
+        public void Restart()
+        {
+            Dispose();
+            ResetState();
+            Start();
+        }
+
         public void Dispose()
         {
+            _suppressedMouseUpTriggers.Clear();
+            ResetMiddleMouseDoubleState();
+
             if (_mouseHookHandle != IntPtr.Zero)
             {
                 UnhookWindowsHookEx(_mouseHookHandle);
@@ -116,9 +133,14 @@ namespace RadialSek.Services
             }
 
             var hookStruct = Marshal.PtrToStructure<MsllHookStruct>(lParam);
-            if (TryActivateMouseTrigger(trigger, hookStruct.pt.x, hookStruct.pt.y))
+            if (TryActivateMouseTrigger(trigger, hookStruct.pt.x, hookStruct.pt.y, out var activationArgs))
             {
                 _suppressedMouseUpTriggers.Add(trigger);
+                if (activationArgs != null)
+                {
+                    ActivationRequested?.Invoke(this, activationArgs);
+                }
+
                 return (IntPtr)1;
             }
 
@@ -140,13 +162,22 @@ namespace RadialSek.Services
             }
 
             GetCursorPos(out var point);
-            return TryActivate(trigger, point.x, point.y)
-                ? (IntPtr)1
-                : CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
+            if (TryMatchActivation(trigger, point.x, point.y, out var activationArgs))
+            {
+                if (activationArgs != null)
+                {
+                    ActivationRequested?.Invoke(this, activationArgs);
+                }
+
+                return (IntPtr)1;
+            }
+
+            return CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
         }
 
-        private bool TryActivate(string trigger, double x, double y)
+        private bool TryMatchActivation(string trigger, double x, double y, out ActivationEventArgs? activationArgs)
         {
+            activationArgs = null;
             if ((DateTime.UtcNow - _lastActivationUtc).TotalMilliseconds < 220)
             {
                 return false;
@@ -170,27 +201,27 @@ namespace RadialSek.Services
                 }
 
                 _lastActivationUtc = DateTime.UtcNow;
-                ActivationRequested?.Invoke(this, new ActivationEventArgs(x, y, shortcut.ShortcutId));
+                activationArgs = new ActivationEventArgs(x, y, shortcut.ShortcutId);
                 return true;
             }
 
             return false;
         }
 
-        private bool TryActivateMouseTrigger(string trigger, double x, double y)
+        private bool TryActivateMouseTrigger(string trigger, double x, double y, out ActivationEventArgs? activationArgs)
         {
             if (string.Equals(trigger, ActivationShortcut.TriggerMiddleMouse, StringComparison.OrdinalIgnoreCase))
             {
                 var isDoubleClick = IsMiddleMouseDoubleClick(x, y);
                 TrackMiddleMouseDown(x, y);
-                if (isDoubleClick && TryActivate(ActivationShortcut.TriggerMiddleMouseDouble, x, y))
+                if (isDoubleClick && TryMatchActivation(ActivationShortcut.TriggerMiddleMouseDouble, x, y, out activationArgs))
                 {
                     ResetMiddleMouseDoubleState();
                     return true;
                 }
             }
 
-            return TryActivate(trigger, x, y);
+            return TryMatchActivation(trigger, x, y, out activationArgs);
         }
 
         private bool IsMiddleMouseDoubleClick(double x, double y)

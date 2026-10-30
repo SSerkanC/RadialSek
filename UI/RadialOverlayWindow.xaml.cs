@@ -470,13 +470,13 @@ namespace RadialSek.UI
         private const int VkRButton = 0x02;
         private const int VkLWin = 0x5B;
         private const int VkRWin = 0x5C;
-        private const int OdakKaskadiCenterAccentHoldMs = 1000;
-        private const int OdakKaskadiCenterAccentPeakMs = 1500;
-        private const int OdakKaskadiCenterAccentReturnMs = 3500;
-        private const int OdakKaskadiFinalizeBufferMs = 80;
+        private const int OdakKaskadiCenterAccentHoldMs = 80;
+        private const int OdakKaskadiCenterAccentPeakMs = 180;
+        private const int OdakKaskadiCenterAccentReturnMs = 320;
+        private const int OdakKaskadiFinalizeBufferMs = 30;
         private const double CenterClockFontScale = 2.0;
-        private const int RingAmbientAnimationFps = 30;
-        private const int RingSequenceAnimationFps = 40;
+        private const int RingAmbientAnimationFps = 60;
+        private const int RingSequenceAnimationFps = 60;
         private const int OverlayContextMenuZIndex = 1200;
         private const string UtilityDockTrayTag = "UtilityDockTray";
         private const string UtilityShutdownTrayTag = "UtilityShutdownTray";
@@ -5651,12 +5651,16 @@ namespace RadialSek.UI
 
         private static void ApplyDesiredFrameRate(Timeline timeline, int fps)
         {
-            if (timeline == null || fps <= 0)
+            if (timeline == null)
             {
                 return;
             }
 
-            Timeline.SetDesiredFrameRate(timeline, fps);
+            // Do not throttle animation framerate below 60 FPS; let WPF render at native monitor refresh rate (60Hz/144Hz+) for maximum smoothness.
+            if (fps >= 60)
+            {
+                Timeline.SetDesiredFrameRate(timeline, fps);
+            }
         }
 
         private static Geometry CreateRingSegmentGeometry(
@@ -5839,16 +5843,16 @@ namespace RadialSek.UI
             RootScaleTransform.ScaleX = 1.0;
             RootScaleTransform.ScaleY = 1.0;
             RootTranslateTransform.Y = 0.0;
-            AnimateCenterPanelEntrance(0.0, 1.0, 0.92, 1.0, 170, 220);
+            AnimateCenterPanelEntrance(0.0, 1.0, 0.92, 1.0, 130, 170);
 
             var interactions = GetMainRingInteractions();
 
             for (var i = 0; i < interactions.Count; i++)
             {
                 var interaction = interactions[i];
-                var begin = TimeSpan.FromMilliseconds(95 + (i * 34));
-                AnimateSegmentScaleEntrance(interaction.Segment, 0.18, 1.0, begin, 280, new CubicEase { EasingMode = EasingMode.EaseOut });
-                AnimateIconScaleEntrance(interaction.IconHost, 0.7, 1.0, begin + TimeSpan.FromMilliseconds(78), 180, new QuadraticEase { EasingMode = EasingMode.EaseOut });
+                var begin = TimeSpan.FromMilliseconds(30 + (i * 18));
+                AnimateSegmentScaleEntrance(interaction.Segment, 0.18, 1.0, begin, 180, new CubicEase { EasingMode = EasingMode.EaseOut });
+                AnimateIconScaleEntrance(interaction.IconHost, 0.7, 1.0, begin + TimeSpan.FromMilliseconds(25), 140, new QuadraticEase { EasingMode = EasingMode.EaseOut });
             }
         }
 
@@ -5858,11 +5862,11 @@ namespace RadialSek.UI
             RootScaleTransform.ScaleX = 1.0;
             RootScaleTransform.ScaleY = 1.0;
             RootTranslateTransform.Y = 0.0;
-            AnimateCenterPanelEntrance(0.0, 1.0, 0.88, 1.03, 160, 240);
+            AnimateCenterPanelEntrance(0.0, 1.0, 0.88, 1.03, 130, 170);
 
             var profile = GetLayoutProfile();
             var interactions = GetMainRingInteractions();
-            var inwardDistance = Math.Max(28, (profile.InnerRadius - (profile.CenterSize / 2.0)) + 20);
+            var inwardDistance = Math.Max(24, (profile.InnerRadius - (profile.CenterSize / 2.0)) + 14);
 
             for (var i = 0; i < interactions.Count; i++)
             {
@@ -5870,10 +5874,10 @@ namespace RadialSek.UI
                 var radians = ToRadians((interaction.StartAngle + interaction.EndAngle) / 2.0);
                 var offsetX = -Math.Cos(radians) * inwardDistance;
                 var offsetY = -Math.Sin(radians) * inwardDistance;
-                var begin = TimeSpan.FromMilliseconds(120 + (i * 14));
+                var begin = TimeSpan.FromMilliseconds(30 + (i * 12));
 
-                AnimateSegmentEntrance(interaction.Segment, offsetX, offsetY, begin, 300, new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 });
-                AnimateIconEntrance(interaction.IconHost, offsetX * 1.18, offsetY * 1.18, begin + TimeSpan.FromMilliseconds(28), 260, new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 });
+                AnimateSegmentEntrance(interaction.Segment, offsetX, offsetY, begin, 180, new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 });
+                AnimateIconEntrance(interaction.IconHost, offsetX * 1.12, offsetY * 1.12, begin + TimeSpan.FromMilliseconds(20), 160, new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.20 });
             }
         }
 
@@ -5883,12 +5887,12 @@ namespace RadialSek.UI
             RootScaleTransform.ScaleX = 1.0;
             RootScaleTransform.ScaleY = 1.0;
             RootTranslateTransform.Y = 0.0;
-            AnimateCenterPanelEntrance(0.0, 1.0, 0.97, 1.0, 120, 170);
+            AnimateCenterPanelEntrance(0.0, 1.0, 0.97, 1.0, 100, 140);
 
             var profile = GetLayoutProfile();
             var interactions = GetMainRingInteractions();
-            var sweepOffset = Math.Max(26, profile.OuterRadius * 0.11);
-            var inwardDistance = Math.Max(18, (profile.InnerRadius - (profile.CenterSize / 2.0)) * 0.48);
+            var sweepOffset = Math.Max(20, profile.OuterRadius * 0.08);
+            var inwardDistance = Math.Max(16, (profile.InnerRadius - (profile.CenterSize / 2.0)) * 0.40);
 
             for (var i = 0; i < interactions.Count; i++)
             {
@@ -5898,10 +5902,10 @@ namespace RadialSek.UI
                 var tangentY = Math.Cos(radians) * sweepOffset;
                 var radialX = -Math.Cos(radians) * inwardDistance;
                 var radialY = -Math.Sin(radians) * inwardDistance;
-                var begin = TimeSpan.FromMilliseconds(105 + (i * 44));
+                var begin = TimeSpan.FromMilliseconds(25 + (i * 16));
 
-                AnimateSegmentEntrance(interaction.Segment, tangentX + radialX, tangentY + radialY, begin, 240, new CubicEase { EasingMode = EasingMode.EaseOut });
-                AnimateIconEntrance(interaction.IconHost, tangentX * 0.9 + radialX, tangentY * 0.9 + radialY, begin + TimeSpan.FromMilliseconds(42), 210, new QuadraticEase { EasingMode = EasingMode.EaseOut });
+                AnimateSegmentEntrance(interaction.Segment, tangentX + radialX, tangentY + radialY, begin, 170, new CubicEase { EasingMode = EasingMode.EaseOut });
+                AnimateIconEntrance(interaction.IconHost, tangentX * 0.9 + radialX, tangentY * 0.9 + radialY, begin + TimeSpan.FromMilliseconds(20), 150, new QuadraticEase { EasingMode = EasingMode.EaseOut });
             }
         }
 
@@ -5911,29 +5915,29 @@ namespace RadialSek.UI
             RootScaleTransform.ScaleX = 1.0;
             RootScaleTransform.ScaleY = 1.0;
             RootTranslateTransform.Y = 0.0;
-            AnimateCenterPanelEntrance(0.0, 1.0, 0.9, 1.02, 140, 220);
+            AnimateCenterPanelEntrance(0.0, 1.0, 0.9, 1.02, 110, 160);
 
             var profile = GetLayoutProfile();
             var interactions = GetMainRingInteractions();
-            var dropDistance = Math.Max(80, profile.OuterRadius * 0.42);
+            var dropDistance = Math.Max(60, profile.OuterRadius * 0.30);
 
             for (var i = 0; i < interactions.Count; i++)
             {
                 var interaction = interactions[i];
-                var begin = TimeSpan.FromMilliseconds(85 + (i * 26));
-                var sideDrift = ((i % 2 == 0) ? -1 : 1) * Math.Max(10, profile.OuterRadius * 0.04);
+                var begin = TimeSpan.FromMilliseconds(25 + (i * 14));
+                var sideDrift = ((i % 2 == 0) ? -1 : 1) * Math.Max(8, profile.OuterRadius * 0.03);
 
-                AnimateSegmentEntrance(interaction.Segment, sideDrift, -dropDistance, begin, 300, new BounceEase
+                AnimateSegmentEntrance(interaction.Segment, sideDrift, -dropDistance, begin, 190, new BounceEase
                 {
                     EasingMode = EasingMode.EaseOut,
-                    Bounces = 2,
-                    Bounciness = 1.7
+                    Bounces = 1,
+                    Bounciness = 1.3
                 });
 
-                AnimateIconEntrance(interaction.IconHost, sideDrift * 1.4, -(dropDistance + 24), begin + TimeSpan.FromMilliseconds(55), 260, new BackEase
+                AnimateIconEntrance(interaction.IconHost, sideDrift * 1.2, -(dropDistance + 16), begin + TimeSpan.FromMilliseconds(25), 170, new BackEase
                 {
                     EasingMode = EasingMode.EaseOut,
-                    Amplitude = 0.28
+                    Amplitude = 0.20
                 });
             }
         }
@@ -5945,11 +5949,11 @@ namespace RadialSek.UI
             RootScaleTransform.ScaleY = 1.0;
             RootTranslateTransform.Y = 0.0;
 
-            AnimateCenterPanelEntrance(0.0, 1.0, 0.94, 1.0, 150, 180);
+            AnimateCenterPanelEntrance(0.0, 1.0, 0.94, 1.0, 110, 150);
 
             var settleEase = new CubicEase { EasingMode = EasingMode.EaseOut };
             var profile = GetLayoutProfile();
-            var inwardDistance = Math.Max(26, (profile.InnerRadius - (profile.CenterSize / 2.0)) + 12);
+            var inwardDistance = Math.Max(20, (profile.InnerRadius - (profile.CenterSize / 2.0)) + 10);
             var interactions = GetMainRingInteractions();
 
             for (var i = 0; i < interactions.Count; i++)
@@ -5959,10 +5963,10 @@ namespace RadialSek.UI
                 var radians = ToRadians(middleAngle);
                 var offsetX = -Math.Cos(radians) * inwardDistance;
                 var offsetY = -Math.Sin(radians) * inwardDistance;
-                var begin = TimeSpan.FromMilliseconds(110 + (i * 28));
+                var begin = TimeSpan.FromMilliseconds(25 + (i * 14));
 
-                AnimateSegmentEntrance(interaction.Segment, offsetX, offsetY, begin, 220, settleEase);
-                AnimateIconEntrance(interaction.IconHost, offsetX * 1.08, offsetY * 1.08, begin + TimeSpan.FromMilliseconds(35), 200, settleEase);
+                AnimateSegmentEntrance(interaction.Segment, offsetX, offsetY, begin, 160, settleEase);
+                AnimateIconEntrance(interaction.IconHost, offsetX * 1.05, offsetY * 1.05, begin + TimeSpan.FromMilliseconds(18), 140, settleEase);
             }
         }
 
@@ -5990,7 +5994,7 @@ namespace RadialSek.UI
                 {
                     From = 0.0,
                     To = 1.0,
-                    Duration = TimeSpan.FromMilliseconds(1000),
+                    Duration = TimeSpan.FromMilliseconds(180),
                     EasingFunction = centerEase
                 });
 
@@ -6000,20 +6004,20 @@ namespace RadialSek.UI
                     {
                         From = 0.0,
                         To = 1.0,
-                        Duration = TimeSpan.FromMilliseconds(1000),
+                        Duration = TimeSpan.FromMilliseconds(180),
                         EasingFunction = centerEase
                     });
                     centerScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, new DoubleAnimation
                     {
                         From = 0.0,
                         To = 1.0,
-                        Duration = TimeSpan.FromMilliseconds(1000),
+                        Duration = TimeSpan.FromMilliseconds(180),
                         EasingFunction = centerEase
                     });
                 }
             }
 
-            AnimateUtilityDockEntrance(0.0, 1.0, 0.0, 1.0, 1000, 1000);
+            AnimateUtilityDockEntrance(0.0, 1.0, 0.0, 1.0, 180, 180);
 
             var profile = GetLayoutProfile();
             if (_enableGradientRingAnimations)
@@ -6030,10 +6034,10 @@ namespace RadialSek.UI
             }
 
             var centerRadius = profile.CenterSize * 0.5;
-            var inwardDistance = Math.Max(24.0, (profile.InnerRadius - centerRadius) + 14.0);
+            var inwardDistance = Math.Max(20.0, (profile.InnerRadius - centerRadius) * 0.65 + 8.0);
             const double cascadeStartMs = 0.0;
-            const double cascadeWindowMs = 1000.0;
-            var segmentDurationMs = interactions.Count <= 1 ? cascadeWindowMs : 360.0;
+            const double cascadeWindowMs = 180.0;
+            var segmentDurationMs = interactions.Count <= 1 ? cascadeWindowMs : 140.0;
             var stepMs = interactions.Count <= 1
                 ? 0.0
                 : Math.Max(0.0, (cascadeWindowMs - segmentDurationMs) / (interactions.Count - 1));
@@ -6061,8 +6065,8 @@ namespace RadialSek.UI
                     segmentEase);
                 AnimateIconEntrance(
                     interaction.IconHost,
-                    offsetX * 1.06,
-                    offsetY * 1.06,
+                    offsetX * 1.04,
+                    offsetY * 1.04,
                     begin,
                     (int)Math.Round(segmentDurationMs),
                     segmentEase);
@@ -6071,7 +6075,7 @@ namespace RadialSek.UI
             var ringTailMs = _enableGradientRingAnimations
                 ? OdakKaskadiCenterAccentReturnMs + OdakKaskadiFinalizeBufferMs
                 : 0.0;
-            var finalizeMs = Math.Max(cascadeStartMs + cascadeWindowMs + 60.0, ringTailMs);
+            var finalizeMs = Math.Max(cascadeStartMs + cascadeWindowMs + 40.0, ringTailMs);
             _openAnimationFinalizeTimer.Stop();
             _openAnimationFinalizeTimer.Interval = TimeSpan.FromMilliseconds(finalizeMs);
             _openAnimationFinalizeTimer.Start();
@@ -6118,7 +6122,6 @@ namespace RadialSek.UI
             var opacitySequence = new DoubleAnimationUsingKeyFrames();
             ApplyDesiredFrameRate(opacitySequence, RingSequenceAnimationFps);
             opacitySequence.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            opacitySequence.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(700))));
             opacitySequence.KeyFrames.Add(new EasingDoubleKeyFrame(baseOpacity, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(thicknessHoldMs)))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -6277,7 +6280,6 @@ namespace RadialSek.UI
             var opacitySequence = new DoubleAnimationUsingKeyFrames();
             ApplyDesiredFrameRate(opacitySequence, RingSequenceAnimationFps);
             opacitySequence.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            opacitySequence.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(700))));
             opacitySequence.KeyFrames.Add(new EasingDoubleKeyFrame(baseOpacity, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(thicknessHoldMs)))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -6434,8 +6436,12 @@ namespace RadialSek.UI
                 var iconHost = iconPair.Key;
                 var finalPosition = iconPair.Value;
                 iconHost.BeginAnimation(OpacityProperty, null);
-                iconHost.BeginAnimation(Canvas.LeftProperty, null);
-                iconHost.BeginAnimation(Canvas.TopProperty, null);
+                if (iconHost.RenderTransform is TranslateTransform translate)
+                {
+                    translate.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, null);
+                    translate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+                }
+                iconHost.RenderTransform = Transform.Identity;
                 iconHost.Opacity = 1.0;
                 Canvas.SetLeft(iconHost, finalPosition.X);
                 Canvas.SetTop(iconHost, finalPosition.Y);
@@ -6655,33 +6661,30 @@ namespace RadialSek.UI
         private static void AnimateIconEntrance(Border iconHost, double offsetX, double offsetY, TimeSpan beginTime, int durationMs, IEasingFunction easing)
         {
             iconHost.Opacity = 0.0;
-
-            var originalLeft = Canvas.GetLeft(iconHost);
-            var originalTop = Canvas.GetTop(iconHost);
-            Canvas.SetLeft(iconHost, originalLeft + offsetX);
-            Canvas.SetTop(iconHost, originalTop + offsetY);
+            var translate = new TranslateTransform(offsetX, offsetY);
+            iconHost.RenderTransform = translate;
 
             iconHost.BeginAnimation(OpacityProperty, new DoubleAnimation
             {
                 From = 0.0,
                 To = 1.0,
                 BeginTime = beginTime,
-                Duration = TimeSpan.FromMilliseconds(Math.Max(120, durationMs - 40)),
+                Duration = TimeSpan.FromMilliseconds(Math.Max(80, durationMs - 30)),
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
             });
 
-            iconHost.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation
+            translate.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, new DoubleAnimation
             {
-                From = originalLeft + offsetX,
-                To = originalLeft,
+                From = offsetX,
+                To = 0.0,
                 BeginTime = beginTime,
                 Duration = TimeSpan.FromMilliseconds(durationMs),
                 EasingFunction = easing
             });
-            iconHost.BeginAnimation(Canvas.TopProperty, new DoubleAnimation
+            translate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, new DoubleAnimation
             {
-                From = originalTop + offsetY,
-                To = originalTop,
+                From = offsetY,
+                To = 0.0,
                 BeginTime = beginTime,
                 Duration = TimeSpan.FromMilliseconds(durationMs),
                 EasingFunction = easing

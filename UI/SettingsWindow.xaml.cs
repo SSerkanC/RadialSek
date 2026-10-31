@@ -178,6 +178,8 @@ namespace RadialSek.UI
             StopwatchBackgroundRunCheckBox.IsChecked = _toolsSettings.Stopwatch.KeepRunningInBackground;
             ShutdownTimerToolEnabledCheckBox.IsChecked = _toolsSettings.ShutdownTimer.EnableShutdownTimerTool;
             ShutdownTimerShowCountdownCheckBox.IsChecked = _toolsSettings.ShutdownTimer.ShowCenterCountdown;
+            SideMenuToolEnabledCheckBox.IsChecked = _toolsSettings.SideMenu.EnableSideMenu;
+            SideMenuShowIndicatorLineCheckBox.IsChecked = _toolsSettings.SideMenu.ShowIndicatorLine;
 
             OpenShortcutCaptureButton.Content = GetShortcut(ActivationShortcut.OpenMenuShortcutId).GetDisplayText();
             ToggleShortcutCaptureButton.Content = GetShortcut(ActivationShortcut.ToggleProgramShortcutId).GetDisplayText();
@@ -489,6 +491,8 @@ namespace RadialSek.UI
             StopwatchBackgroundRunCheckBox.IsChecked = _toolsSettings.Stopwatch.KeepRunningInBackground;
             ShutdownTimerToolEnabledCheckBox.IsChecked = _toolsSettings.ShutdownTimer.EnableShutdownTimerTool;
             ShutdownTimerShowCountdownCheckBox.IsChecked = _toolsSettings.ShutdownTimer.ShowCenterCountdown;
+            SideMenuToolEnabledCheckBox.IsChecked = _toolsSettings.SideMenu.EnableSideMenu;
+            SideMenuShowIndicatorLineCheckBox.IsChecked = _toolsSettings.SideMenu.ShowIndicatorLine;
             WeatherAnimationsEnabledCheckBox.IsChecked = _weatherSettings.EnableAnimations;
             WeatherUseLiveDataCheckBox.IsChecked = _weatherSettings.UseLiveData;
             WeatherManualPresetComboBox.SelectedValue = WeatherSettingsService.ResolveWeatherPresetKey(_weatherSettings.ManualPreset);
@@ -1157,6 +1161,8 @@ namespace RadialSek.UI
             _toolsSettings.Stopwatch.KeepRunningInBackground = StopwatchBackgroundRunCheckBox.IsChecked == true;
             _toolsSettings.ShutdownTimer.EnableShutdownTimerTool = ShutdownTimerToolEnabledCheckBox.IsChecked == true;
             _toolsSettings.ShutdownTimer.ShowCenterCountdown = ShutdownTimerShowCountdownCheckBox.IsChecked == true;
+            _toolsSettings.SideMenu.EnableSideMenu = SideMenuToolEnabledCheckBox.IsChecked == true;
+            _toolsSettings.SideMenu.ShowIndicatorLine = SideMenuShowIndicatorLineCheckBox.IsChecked == true;
         }
 
         private static string FormatVolumePercentage(double value)

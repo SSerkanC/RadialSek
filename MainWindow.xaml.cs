@@ -77,6 +77,7 @@ namespace RadialSek
             SystemEvents.DisplaySettingsChanged += OnSystemDisplaySettingsChanged;
             SystemEvents.SessionSwitch += OnSystemSessionSwitch;
             TryApplyCustomTrayIcon();
+            SideDockService.Instance.Initialize(_launcherService, _configService, _currentConfig);
             Dispatcher.BeginInvoke(new Action(PrewarmOverlayWindow), DispatcherPriority.ApplicationIdle);
         }
 
@@ -109,6 +110,7 @@ namespace RadialSek
                 new Action(() =>
                 {
                     DisposeOverlayInstance("DisplaySettingsChanged");
+                    SideDockService.Instance.Reposition();
                     _inputHook.ResetState();
                     MarkMenuInteraction();
                 }));
@@ -327,6 +329,7 @@ namespace RadialSek
             _soundManager.ApplyConfig(_currentConfig);
             _inputHook.UpdateShortcuts(_currentConfig.Shortcuts);
             _inputHook.SetProgramEnabled(_isProgramEnabled);
+            SideDockService.Instance.RefreshConfig(_currentConfig);
             MarkMenuInteraction();
         }
 
@@ -548,6 +551,7 @@ namespace RadialSek
             SystemEvents.DisplaySettingsChanged -= OnSystemDisplaySettingsChanged;
             SystemEvents.SessionSwitch -= OnSystemSessionSwitch;
             DisposeOverlayInstance("MainWindowClosed");
+            SideDockService.Instance.CloseWindow();
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _notifyIconAsset.Dispose();

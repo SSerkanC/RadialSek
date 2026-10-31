@@ -1,0 +1,423 @@
+<Window x:Class="RadialSek.UI.SideDockWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ShowActivated="False"
+        WindowStartupLocation="Manual"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.ClearTypeHint="Enabled"
+        AllowDrop="True"
+        Deactivated="OnWindowDeactivated"
+        PreviewKeyDown="OnPreviewKeyDown"
+        PreviewMouseDown="OnWindowPreviewMouseDown">
+
+    <Window.Resources>
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="#E61A1D26"/>
+            <Setter Property="Foreground" Value="#F0F4F8"/>
+            <Setter Property="BorderBrush" Value="#40FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4,8,4"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="8" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.5"/>
+                            </Border.Effect>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid x:Name="RootGrid" Background="{x:Null}" ClipToBounds="True">
+        <!-- Tetikleyici Alan (Kapalıyken ekranın sağ kenarında durur, 24px genişlik) -->
+        <Border x:Name="TriggerZone"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="24"
+                Background="#01000000"
+                Cursor="Hand"
+                AllowDrop="True"
+                MouseEnter="OnTriggerZoneMouseEnter"
+                MouseLeave="OnTriggerZoneMouseLeave"
+                DragEnter="OnTriggerZoneDragEnter"
+                DragOver="OnTriggerZoneDragOver"
+                DragLeave="OnTriggerZoneDragLeave"
+                Drop="OnTriggerZoneDrop"
+                PreviewMouseLeftButtonDown="OnTriggerZonePreviewMouseLeftButtonDown">
+            <!-- Görünür İnce Çizgi (Ayarlardan açılıp kapatılabilir) -->
+            <Border x:Name="VisualLine"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Stretch"
+                    Width="4"
+                    Background="#FFAA00"
+                    CornerRadius="2,0,0,2"
+                    Opacity="0.75"
+                    IsHitTestVisible="False">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="6" ShadowDepth="0" Color="#FFAA00" Opacity="0.85"/>
+                </Border.Effect>
+            </Border>
+        </Border>
+
+        <!-- Açılan Yan Menü ve Dış Sekmeler Paneli (Expanded) -->
+        <Grid x:Name="ExpandedContainer"
+              HorizontalAlignment="Right"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed">
+            <Grid.RenderTransform>
+                <TranslateTransform x:Name="DrawerTransform" X="270"/>
+            </Grid.RenderTransform>
+
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/> <!-- Sol sekme şeridi -->
+                <ColumnDefinition Width="Auto"/> <!-- Ana çekmece paneli -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Sekmeler Şeridi (Dışarıda, sol tarafta, yan menüye bitişik) -->
+            <StackPanel x:Name="TabsBar"
+                        Grid.Column="0"
+                        Panel.ZIndex="10"
+                        VerticalAlignment="Top"
+                        Margin="0,0,-1,0"
+                        HorizontalAlignment="Right">
+                <!-- Sekmeler (1, 2, ...) -->
+                <StackPanel x:Name="TabsContainer"/>
+
+                <!-- Yeni Sekme Ekle Butonu (+) -->
+                <Border x:Name="AddTabButton"
+                        Width="20" Height="24"
+                        CornerRadius="6,0,0,6"
+                        Background="#A4ABB6"
+                        BorderBrush="#40FFFFFF"
+                        BorderThickness="1,1,0,1"
+                        Cursor="Hand"
+                        Margin="0,2,0,0"
+                        HorizontalAlignment="Right"
+                        ToolTip="Yeni Sekme Ekle"
+                        MouseEnter="OnAddTabButtonMouseEnter"
+                        MouseLeave="OnAddTabButtonMouseLeave"
+                        PreviewMouseLeftButtonDown="OnAddTabButtonClicked">
+                    <TextBlock Text="+"
+                               Foreground="#141720"
+                               FontSize="13"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Margin="0,-1,0,0"/>
+                </Border>
+            </StackPanel>
+
+            <!-- 1. Yan Menünün ARKASINDA Kalan Şeritler (Sağ ve Soldaki İnce Şeritler - Z-Index: 8) -->
+            <Canvas x:Name="WeatherRibbonsUnderCanvas"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    Panel.ZIndex="8"
+                    Width="512" Height="380"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,0"
+                    ClipToBounds="False"
+                    Visibility="Collapsed"
+                    IsHitTestVisible="False"/>
+
+            <!-- 2. Ana Yan Menü Paneli (Expanded - Z-Index: 10) -->
+            <Border x:Name="DrawerPanel"
+                    Grid.Column="1"
+                    Panel.ZIndex="10"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Stretch"
+                    Width="270"
+                    Background="#F4141720"
+                    BorderBrush="#38FFFFFF"
+                    BorderThickness="1,0,0,0"
+                    CornerRadius="14,0,0,14"
+                    AllowDrop="True"
+                    MouseEnter="OnDrawerPanelMouseEnter"
+                    MouseLeave="OnDrawerPanelMouseLeave"
+                    PreviewMouseWheel="OnDrawerPreviewMouseWheel"
+                    DragOver="OnDrawerDragOver"
+                    Drop="OnDrawerDrop">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="14" ShadowDepth="2" Direction="180" Color="#000000" Opacity="0.55"/>
+                </Border.Effect>
+
+                <Grid x:Name="DrawerInnerGrid" Margin="12,14,12,14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Başlık (Normal Mod) ve En Üste Bırakma Alanı -->
+                    <Grid x:Name="TopHeaderGrid" Grid.Row="0" Margin="0,0,0,10"
+                          AllowDrop="True"
+                          DragOver="OnTopHeaderDragOver"
+                          DragLeave="OnTopHeaderDragLeave"
+                          Drop="OnTopHeaderDrop">
+                        <StackPanel x:Name="TitleStack" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Width="8" Height="8" Background="#FFAA00" CornerRadius="4" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="SideDockTitleText"
+                                       Text="Yan Menü"
+                                       Foreground="#F0F4F8"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Uygulama Listesi -->
+                    <ScrollViewer x:Name="ItemsScrollViewer"
+                                  Grid.Row="1"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Focusable="False"
+                                  AllowDrop="True"
+                                  DragOver="OnDrawerDragOver"
+                                  Drop="OnDrawerDrop"
+                                  PreviewMouseWheel="OnItemsScrollViewerPreviewMouseWheel">
+                        <StackPanel>
+                            <!-- Boş Durum Bilgisi (Hiç uygulama yokken görünür) -->
+                            <Border x:Name="EmptyStateBorder"
+                                    BorderBrush="#25FFFFFF"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="12"
+                                    Margin="0,16,0,0"
+                                    Visibility="Collapsed">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Text="📁" FontSize="24" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                                    <TextBlock x:Name="EmptyStateTitle"
+                                               Text="Henüz uygulama yok"
+                                               Foreground="#BAC4D0"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock x:Name="EmptyStateHint"
+                                               Text="Masaüstünden veya bilgisayarınızdan buraya uygulama/klasör sürükleyip bırakabilirsiniz."
+                                               Foreground="#788698"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Uygulama ve Klasör Kartları -->
+                            <StackPanel x:Name="ItemsContainer"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Alt Bar (Ayarlar Butonu) -->
+                    <Grid x:Name="BottomDockGrid" Grid.Row="2" Margin="0,8,0,0" HorizontalAlignment="Stretch">
+                        <Border x:Name="SettingsButton"
+                                Width="28" Height="28"
+                                CornerRadius="7"
+                                Background="#1AFFFFFF"
+                                HorizontalAlignment="Center"
+                                Cursor="Hand"
+                                MouseEnter="OnButtonHoverEnter"
+                                MouseLeave="OnButtonHoverLeave"
+                                PreviewMouseLeftButtonUp="OnSettingsButtonClicked"
+                                ToolTip="Ayarlar">
+                            <TextBlock Text="⚙"
+                                       Foreground="#BAC4D0"
+                                       FontSize="13"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- 3. Yan Menünün ÜZERİNE Çıkan Orta Kalın Şerit (Z-Index: 12) -->
+            <Canvas x:Name="WeatherRibbonsOverCanvas"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    Panel.ZIndex="12"
+                    Width="512" Height="380"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,0"
+                    ClipToBounds="False"
+                    Visibility="Collapsed"
+                    IsHitTestVisible="False"/>
+
+            <!-- 4. Hava Durumu ve Donanım Kartı (En Önde - Z-Index: 15) -->
+            <Border x:Name="WeatherCard"
+                    Grid.Column="0"
+                    Panel.ZIndex="15"
+                    Width="240"
+                    Height="125"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,3,0"
+                    CornerRadius="15,0,15,0"
+                    BorderThickness="1"
+                    BorderBrush="#38FFFFFF"
+                    Background="#F011141E"
+                    Visibility="Collapsed"
+                    Opacity="0"
+                    Cursor="Hand"
+                    ToolTip="Hava Durumu / Sistem Kartı (Değiştirmek için tıklayın)"
+                    MouseEnter="OnWeatherCardMouseEnter"
+                    MouseLeave="OnWeatherCardMouseLeave"
+                    PreviewMouseLeftButtonUp="OnWeatherCardClicked">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="WeatherCardFlipTransform" CenterX="120" ScaleX="1.0"/>
+                        <TranslateTransform x:Name="WeatherCardTransform" Y="60"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="14" ShadowDepth="2" Direction="270" Color="#000000" Opacity="0.65"/>
+                </Border.Effect>
+
+                <!-- Kart İçeriği: Arka Planda Animasyonlu Canvas + Ön Planda Çift Yüzlü Tasarım -->
+                <Border CornerRadius="15,0,15,0" ClipToBounds="True">
+                    <Grid>
+                        <!-- Animasyonlu Hava Efektleri Canvas'ı -->
+                        <Canvas x:Name="WeatherCanvas"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                ClipToBounds="True"
+                                IsHitTestVisible="False"/>
+
+                        <!-- Yumuşak Karartma & Derinlik Katmanı -->
+                        <Border Background="#2C090C12" IsHitTestVisible="False"/>
+
+                        <!-- YÜZ 1: Hava Durumu Bilgi Düzeni -->
+                        <Grid x:Name="WeatherFaceGrid" Margin="14,12,14,10" IsHitTestVisible="False">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Sol Üst: İkon, Durum Adı & Şehir -->
+                            <StackPanel Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Name="WeatherIconText"
+                                               Text="⛅"
+                                               FontSize="18"
+                                               Foreground="#FFCA28"
+                                               Margin="0,0,7,0"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="WeatherConditionText"
+                                               Text="Az Bulutlu"
+                                               Foreground="#F8FAFC"
+                                               FontSize="13.5"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock x:Name="WeatherCityText"
+                                           Text="📍 İstanbul"
+                                           Foreground="#94A3B8"
+                                           FontSize="10.5"
+                                           FontWeight="Medium"
+                                           Margin="2,2,0,0"/>
+                            </StackPanel>
+
+                            <!-- Sağ Üst: Küçük Flip Rozeti -->
+                            <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Background="#1AFFFFFF" CornerRadius="4" Padding="5,2" Margin="0,1,0,0">
+                                <TextBlock Text="⇄ Donanım" Foreground="#788698" FontSize="9" FontWeight="Medium"/>
+                            </Border>
+
+                            <!-- Alt Satır: Sıcaklık Değeri & Detay Bilgileri -->
+                            <Grid Grid.Row="1" VerticalAlignment="Bottom" Margin="0,0,0,2">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <TextBlock x:Name="WeatherTempText"
+                                               Text="--°"
+                                               Foreground="#FFFFFF"
+                                               FontSize="36"
+                                               FontWeight="Bold"
+                                               FontFamily="Segoe UI Semibold"
+                                               VerticalAlignment="Bottom"
+                                               Margin="0,0,10,-4"/>
+                                    <StackPanel VerticalAlignment="Bottom" Margin="0,0,0,3">
+                                        <TextBlock x:Name="WeatherDetailText"
+                                                   Text="Bulut: %25"
+                                                   Foreground="#94A3B8"
+                                                   FontSize="10"
+                                                   FontWeight="Medium"/>
+                                        <TextBlock x:Name="WeatherSubDetailText"
+                                                   Text="Hissedilen: 22°"
+                                                   Foreground="#64748B"
+                                                   FontSize="9"
+                                                   Margin="0,1,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+
+                        <!-- YÜZ 2: Donanım / Sistem Nabzı Düzeni -->
+                        <Grid x:Name="HardwareFaceGrid" Margin="14,11,14,10" IsHitTestVisible="False" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Başlık Satırı -->
+                            <Grid Grid.Row="0" Margin="0,0,0,9">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="⚡" FontSize="13" Foreground="#38BDF8" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Sistem Nabzı" Foreground="#F8FAFC" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <Border HorizontalAlignment="Right" VerticalAlignment="Center"
+                                        Background="#1AFFFFFF" CornerRadius="4" Padding="5,2">
+                                    <TextBlock Text="⇄ Hava" Foreground="#788698" FontSize="9" FontWeight="Medium"/>
+                                </Border>
+                            </Grid>
+
+                            <!-- CPU Satırı -->
+                            <Grid Grid.Row="1" Margin="0,0,0,9">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0" Margin="0,0,0,3">
+                                    <TextBlock Text="İşlemci (CPU)" Foreground="#94A3B8" FontSize="10" FontWeight="Medium"/>
+                                    <TextBlock x:Name="HwCpuText" Text="--%" HorizontalAlignment="Right" Foreground="#38BDF8" FontSize="10.5" FontWeight="SemiBold"/>
+                                </Grid>
+                                <Border Grid.Row="1" Height="5" Background="#22FFFFFF" CornerRadius="2.5" ClipToBounds="True">
+                                    <Border x:Name="HwCpuBar" Width="0" HorizontalAlignment="Left" Background="#38BDF8" CornerRadius="2.5"/>
+                                </Border>
+                            </Grid>
+
+                            <!-- RAM Satırı -->
+                            <Grid Grid.Row="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0" Margin="0,0,0,3">
+                                    <TextBlock Text="Bellek (RAM)" Foreground="#94A3B8" FontSize="10" FontWeight="Medium"/>
+                                    <TextBlock x:Name="HwRamText" Text="-- / -- GB (%--)" HorizontalAlignment="Right" Foreground="#A78BFA" FontSize="10.5" FontWeight="SemiBold"/>
+                                </Grid>
+                                <Border Grid.Row="1" Height="5" Background="#22FFFFFF" CornerRadius="2.5" ClipToBounds="True">
+                                    <Border x:Name="HwRamBar" Width="0" HorizontalAlignment="Left" Background="#A78BFA" CornerRadius="2.5"/>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

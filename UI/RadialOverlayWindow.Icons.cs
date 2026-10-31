@@ -1,16 +1,19 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using RadialSek.Models;
 
 namespace RadialSek.UI
 {
     public partial class RadialOverlayWindow
     {
-        private const int IconCacheLimit = 160;
+        private const int IconCacheLimit = 512;
         private const uint ShgfiIcon = 0x000000100;
         private const uint ShgfiLargeIcon = 0x000000000;
         private const uint ShgfiUseFileAttributes = 0x000000010;
@@ -21,6 +24,8 @@ namespace RadialSek.UI
         private static readonly Dictionary<string, LinkedListNode<string>> IconCacheNodes = new Dictionary<string, LinkedListNode<string>>(StringComparer.OrdinalIgnoreCase);
         private static readonly LinkedList<string> IconCacheUsage = new LinkedList<string>();
         private static readonly Dictionary<string, ImageSource> ExtensionIconCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, bool> DirectoryPathCache = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
         private static readonly HashSet<string> PathSpecificIconExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".exe",
@@ -58,6 +63,87 @@ namespace RadialSek.UI
         [DllImport("User32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
 
+        public static bool IsDirectoryTarget(string? targetPath)
+        {
+            if (string.IsNullOrWhiteSpace(targetPath))
+            {
+                return false;
+            }
+
+            var resolved = ResolveIconPath(targetPath);
+            if (string.IsNullOrWhiteSpace(resolved))
+            {
+                return false;
+            }
+
+            return DirectoryPathCache.GetOrAdd(resolved, path =>
+            {
+                try
+                {
+                    return Directory.Exists(path);
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+        }
+
+        public static void PreloadConfigIcons(MenuConfig? config)
+        {
+            if (config == null)
+            {
+                return;
+            }
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    void Collect(IEnumerable<MenuItemConfig>? items)
+                    {
+                        if (items == null)
+                        {
+                            return;
+                        }
+
+                        foreach (var item in items)
+                        {
+                            if (!string.IsNullOrWhiteSpace(item.TargetPath))
+                            {
+                                targets.Add(item.TargetPath);
+                            }
+
+                            if (item.Children is { Count: > 0 })
+                            {
+                                Collect(item.Children);
+                            }
+                        }
+                    }
+
+                    Collect(config.Items);
+                    Collect(config.Page2Items);
+                    if (config.Pages != null)
+                    {
+                        foreach (var page in config.Pages)
+                        {
+                            Collect(page.Items);
+                        }
+                    }
+
+                    foreach (var target in targets)
+                    {
+                        LoadIcon(target);
+                    }
+                }
+                catch
+                {
+                }
+            });
+        }
+
         private static ImageSource LoadIcon(string targetPath)
         {
             var resolvedPath = ResolveIconPath(targetPath);
@@ -74,17 +160,22 @@ namespace RadialSek.UI
             try
             {
                 ImageSource? imageSource = null;
-                if (Directory.Exists(resolvedPath))
+                if (IsDirectoryTarget(resolvedPath))
                 {
                     imageSource = LoadShellIcon(resolvedPath, isDirectory: true, useFileAttributes: false);
                 }
-                else if (File.Exists(resolvedPath))
+                else
                 {
                     imageSource = LoadFileIcon(resolvedPath);
                 }
 
                 if (imageSource != null)
                 {
+                    if (imageSource.CanFreeze && !imageSource.IsFrozen)
+                    {
+                        imageSource.Freeze();
+                    }
+
                     CacheIcon(resolvedPath, imageSource);
                     return imageSource;
                 }
@@ -110,6 +201,11 @@ namespace RadialSek.UI
                 var extensionIcon = LoadShellIcon(extension, isDirectory: false, useFileAttributes: true);
                 if (extensionIcon != null)
                 {
+                    if (extensionIcon.CanFreeze && !extensionIcon.IsFrozen)
+                    {
+                        extensionIcon.Freeze();
+                    }
+
                     CacheExtensionIcon(extension, extensionIcon);
                     return extensionIcon;
                 }
@@ -118,11 +214,33 @@ namespace RadialSek.UI
             var shellIcon = LoadShellIcon(resolvedPath, isDirectory: false, useFileAttributes: false);
             if (shellIcon != null)
             {
+                if (shellIcon.CanFreeze && !shellIcon.IsFrozen)
+                {
+                    shellIcon.Freeze();
+                }
+
                 return shellIcon;
             }
 
-            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(resolvedPath);
-            return ConvertIconToImageSource(icon);
+            try
+            {
+                if (File.Exists(resolvedPath))
+                {
+                    using var icon = System.Drawing.Icon.ExtractAssociatedIcon(resolvedPath);
+                    var converted = ConvertIconToImageSource(icon);
+                    if (converted != null && converted.CanFreeze && !converted.IsFrozen)
+                    {
+                        converted.Freeze();
+                    }
+
+                    return converted;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
         }
 
         private static bool TryGetCachedIcon(string resolvedPath, out ImageSource cached)
@@ -236,7 +354,11 @@ namespace RadialSek.UI
                 iconHandle,
                 Int32Rect.Empty,
                 BitmapSizeOptions.FromWidthAndHeight(64, 64));
-            source.Freeze();
+            if (source.CanFreeze && !source.IsFrozen)
+            {
+                source.Freeze();
+            }
+
             return source;
         }
 

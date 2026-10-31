@@ -1173,18 +1173,9 @@ namespace RadialSek.UI
                     : segment.Tag is MenuItemConfig baseItem
                         ? GetItemBaseSegmentColor(baseItem)
                         : _theme.SegmentColor;
-            if (brush.Color == target)
-            {
-                return;
-            }
 
-            var animation = new ColorAnimation
-            {
-                To = target,
-                Duration = TimeSpan.FromMilliseconds(active ? 112 : 154),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            brush.Color = target;
         }
     }
 }

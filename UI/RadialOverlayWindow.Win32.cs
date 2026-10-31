@@ -206,7 +206,7 @@ namespace RadialSek.UI
                     0,
                     0,
                     0,
-                    SwpNoMove | SwpNoSize | SwpNoActivate | SwpFrameChanged);
+                    SwpNoMove | SwpNoSize | SwpNoActivate);
             }
 
             var source = _hwndSource ?? (HwndSource?)PresentationSource.FromVisual(this);
@@ -231,6 +231,11 @@ namespace RadialSek.UI
 
         private void SetWindowClickThrough(bool enabled)
         {
+            if (_isWindowClickThroughEnabled == enabled)
+            {
+                return;
+            }
+
             var windowHandle = _hwndSource?.Handle ?? IntPtr.Zero;
             if (windowHandle == IntPtr.Zero)
             {

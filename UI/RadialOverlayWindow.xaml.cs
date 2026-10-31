@@ -36,26 +36,6 @@ namespace RadialSek.UI
             Circle
         }
 
-        private enum WeatherVisualPreset
-        {
-            ClearSkyDay,
-            ClearSkyNight,
-            MostlyClear,
-            PartlyCloudy,
-            Overcast,
-            Fog,
-            Drizzle,
-            FreezingDrizzle,
-            Rain,
-            FreezingRain,
-            Snow,
-            SnowGrains,
-            RainShowers,
-            SnowShowers,
-            Thunderstorm,
-            ThunderstormHail
-        }
-
         private sealed class SegmentInteraction
         {
             public SegmentInteraction(ShapePath segment, Border iconHost, MenuItemConfig item, double startAngle, double endAngle, int itemIndex)
@@ -193,6 +173,7 @@ namespace RadialSek.UI
         private readonly List<List<MenuItemConfig>> _pages = new List<List<MenuItemConfig>>();
         private readonly List<ShapePath> _segments = new List<ShapePath>();
         private readonly Dictionary<int, List<UIElement>> _submenuLayers = new Dictionary<int, List<UIElement>>();
+        private readonly Dictionary<int, List<MenuItemConfig>> _activeSubmenuItems = new Dictionary<int, List<MenuItemConfig>>();
         private readonly Dictionary<ShapePath, SolidColorBrush> _segmentBrushes = new Dictionary<ShapePath, SolidColorBrush>();
         private readonly Dictionary<ShapePath, SegmentInteraction> _segmentInteractions = new Dictionary<ShapePath, SegmentInteraction>();
         private readonly Dictionary<Border, SegmentInteraction> _iconInteractions = new Dictionary<Border, SegmentInteraction>();
@@ -223,7 +204,7 @@ namespace RadialSek.UI
         private readonly DispatcherTimer _monochromeRingSnapshotTimer;
         private readonly DispatcherTimer _centerClockTimer;
         private readonly DispatcherTimer _centerCountdownRingTimer;
-        private static readonly SolidColorBrush BackdropHitTestBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0));
+        private static readonly SolidColorBrush BackdropHitTestBrush = FreezeIfPossible(new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0)));
         private static readonly System.Windows.Media.FontFamily CenterTitleDefaultFontFamily = new System.Windows.Media.FontFamily("Segoe UI Semibold");
         private static readonly DoubleCollection MainGhostDashArray = CreateFrozenDoubleCollection(4, 4);
         private static readonly DoubleCollection SubmenuGhostDashArray = CreateFrozenDoubleCollection(3, 3);
@@ -239,10 +220,6 @@ namespace RadialSek.UI
         private ShapePath? _activeAccentPath;
         private Ellipse? _hoverOrbitRing;
         private ShapePath? _hoverOrbitPointer;
-        private PathGeometry? _hoverOrbitPointerGeometry;
-        private PathFigure? _hoverOrbitPointerFigure;
-        private LineSegment? _hoverOrbitPointerLeftSegment;
-        private QuadraticBezierSegment? _hoverOrbitPointerRearSegment;
         private SegmentInteraction? _activeInteraction;
         private HoverInteraction? _activeSubmenuInteraction;
         private HoverInteraction? _dragPreviewInteraction;
@@ -255,6 +232,10 @@ namespace RadialSek.UI
         private Ellipse? _editModeRing;
         private Ellipse? _editModeFocusHaze;
         private Border? _categoryNameStrip;
+        private Border? _categorySymbolContainer;
+        private TextBlock? _categoryBreadcrumbBlock;
+        private TextBlock? _categoryTitleBlock;
+        private TextBlock? _categorySubtitleBlock;
         private Ellipse? _categoryBridgeDot;
         private readonly List<UIElement> _altGuideVisuals = new List<UIElement>();
         private DragItemInteraction? _contextMenuTarget;
@@ -349,7 +330,7 @@ namespace RadialSek.UI
         private static readonly TimeSpan MonochromeRingFadeInDuration = TimeSpan.FromMilliseconds(160);
         private static readonly TimeSpan MonochromeBackdropFadeDuration = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MonochromeBackdropStartDelay = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan HoverOrbitGuideTransitionDuration = TimeSpan.FromMilliseconds(140);
+        private static readonly TimeSpan HoverOrbitGuideTransitionDuration = TimeSpan.FromMilliseconds(40);
         private static readonly TimeSpan HoverOrbitMinUpdateInterval = TimeSpan.FromMilliseconds(14);
         private static readonly TimeSpan CenterCountdownRingOpenRevealDelay = TimeSpan.FromMilliseconds(110);
         private static readonly TimeSpan CenterCountdownRingRefreshInterval = TimeSpan.FromMilliseconds(90);
@@ -459,6 +440,7 @@ namespace RadialSek.UI
             SourceInitialized += OnSourceInitialized;
             Deactivated += OnWindowDeactivated;
             NormalizeConfigPages(config);
+            PreloadConfigIcons(config);
             Closed += (_, __) =>
             {
                 _dragHoverOpenTimer.Stop();
@@ -573,6 +555,7 @@ namespace RadialSek.UI
                 ResetTransientStateForReuse();
                 PositionWindowAcrossVirtualScreen(centerX, centerY, out var localCenter);
                 BuildMenu(localCenter.X, localCenter.Y, _config);
+                UpdateLayout();
                 _lastOpenedUtc = DateTime.UtcNow;
                 _ignoreBackdropMouseUntilUtc = DateTime.UtcNow + BackdropClickGraceDelay;
                 BeginAnimation(OpacityProperty, null);
@@ -595,7 +578,7 @@ namespace RadialSek.UI
                         0,
                         0,
                         0,
-                        SwpNoMove | SwpNoSize | SwpNoActivate | SwpFrameChanged);
+                        SwpNoMove | SwpNoSize | SwpNoActivate);
                 }
 
                 if (wasVisible && _features.EnableMonochromeBackdrop)
@@ -652,6 +635,15 @@ namespace RadialSek.UI
                 try
                 {
                     ResetTransientStateForReuse();
+                    BeginAnimation(OpacityProperty, null);
+                    if (RootCanvas != null)
+                    {
+                        RootCanvas.BeginAnimation(OpacityProperty, null);
+                        RootCanvas.Children.Clear();
+                        RootCanvas.Opacity = 0.0;
+                    }
+                    Opacity = 0.0;
+                    UpdateLayout();
                 }
                 catch (Exception ex)
                 {
@@ -703,7 +695,9 @@ namespace RadialSek.UI
                 {
                     try
                     {
-                        _launcherService.Launch(targetPath);
+                        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                        var screen = System.Windows.Forms.Screen.FromHandle(hwnd);
+                        _launcherService.Launch(targetPath, screen.WorkingArea);
                     }
                     catch (Exception ex)
                     {
@@ -817,6 +811,7 @@ namespace RadialSek.UI
             RootCanvas.Children.Clear();
             _segments.Clear();
             _submenuLayers.Clear();
+            _activeSubmenuItems.Clear();
             _segmentBrushes.Clear();
             _segmentInteractions.Clear();
             _iconInteractions.Clear();
@@ -950,6 +945,12 @@ namespace RadialSek.UI
             ResetEditModeForReuse();
             ClearMonochromeBackdropLayer();
             HideHoverOrbitGuide();
+            if (_hoverOrbitRing != null && RootCanvas != null && RootCanvas.Children.Contains(_hoverOrbitRing))
+            {
+                RootCanvas.Children.Remove(_hoverOrbitRing);
+            }
+            _hoverOrbitRing = null;
+            _hoverOrbitPointer = null;
             UpdateBackdropInteractivity();
         }
 
@@ -1809,8 +1810,18 @@ namespace RadialSek.UI
 
         private void BuildMenu(double centerX, double centerY, MenuConfig config)
         {
+            if (RootCanvas == null)
+            {
+                return;
+            }
+
             _centerX = centerX;
             _centerY = centerY;
+            var canvasWidth = RootCanvas.Width > 0 ? RootCanvas.Width : (Width > 0 ? Width : 1920.0);
+            var canvasHeight = RootCanvas.Height > 0 ? RootCanvas.Height : (Height > 0 ? Height : 1080.0);
+            RootCanvas.RenderTransformOrigin = new WpfPoint(
+                Math.Clamp(centerX / Math.Max(1.0, canvasWidth), 0.0, 1.0),
+                Math.Clamp(centerY / Math.Max(1.0, canvasHeight), 0.0, 1.0));
             StopWeatherVisuals();
             _openAnimationFinalizeTimer.Stop();
             _isOdakKaskadiAnimationActive = false;
@@ -1840,6 +1851,7 @@ namespace RadialSek.UI
             _dragHoverOpenedFromDepth = 0;
             _segments.Clear();
             _submenuLayers.Clear();
+            _activeSubmenuItems.Clear();
             _segmentBrushes.Clear();
             _segmentInteractions.Clear();
             _iconInteractions.Clear();
@@ -1848,6 +1860,11 @@ namespace RadialSek.UI
             _hoverInteractionEntries.Clear();
             _editModeRing = null;
             _editModeFocusHaze = null;
+            _categoryNameStrip = null;
+            _categorySymbolContainer = null;
+            _categoryBreadcrumbBlock = null;
+            _categoryTitleBlock = null;
+            _categorySubtitleBlock = null;
             _altGuideVisuals.Clear();
             ClearPendingDragCategoryOpen(resetSubmenu: false);
             HideItemContextMenu();
@@ -2272,7 +2289,7 @@ namespace RadialSek.UI
             };
         }
 
-        private void AnimateIconHostState(Border iconHost, double targetScale, double targetOpacity, bool instant = false)
+        private void AnimateIconHostState(Border iconHost, double targetScale, double targetOpacity, bool instant = true)
         {
             if (iconHost.RenderTransform is not ScaleTransform scaleTransform)
             {
@@ -2294,11 +2311,11 @@ namespace RadialSek.UI
                 return;
             }
 
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
             var scaleAnimation = new DoubleAnimation
             {
                 To = clampedScale,
-                Duration = TimeSpan.FromMilliseconds(130),
+                Duration = TimeSpan.FromMilliseconds(75),
                 EasingFunction = ease
             };
             scaleTransform.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, scaleAnimation);
@@ -2307,7 +2324,7 @@ namespace RadialSek.UI
             iconHost.BeginAnimation(OpacityProperty, new DoubleAnimation
             {
                 To = clampedOpacity,
-                Duration = TimeSpan.FromMilliseconds(120),
+                Duration = TimeSpan.FromMilliseconds(70),
                 EasingFunction = ease
             });
         }
@@ -2902,9 +2919,7 @@ namespace RadialSek.UI
             {
                 if (!_isEditModeEnabled)
                 {
-                    AnimateCenterText(_centerSubtitle, isCategory
-                        ? "Alt menü açıldı\nBir öğe seçin"
-                        : "Tıklayarak aç\nESC ile kapat");
+                    AnimateCenterText(_centerSubtitle, string.Empty);
                 }
             }
 
@@ -2979,9 +2994,17 @@ namespace RadialSek.UI
                 RestoreSegmentShape();
             }
 
+            foreach (var segmentKey in _segmentBrushes.Keys)
+            {
+                if (!ReferenceEquals(segmentKey, _activeSegment))
+                {
+                    AnimateSegmentHighlight(segmentKey, false);
+                }
+            }
+
             if (_activeIconHost?.Tag is Tuple<MenuItemConfig, TextBlock> tuple)
             {
-                AnimateIconHostState(_activeIconHost, 1.0, 1.0);
+                AnimateIconHostState(_activeIconHost, 1.0, 1.0, instant: true);
                 _activeIconHost.Background = CreateHostBackground(tuple.Item1, isActive: false);
                 _activeIconHost.BorderBrush = CreateHostBorderBrush(tuple.Item1, isActive: false);
                 _activeIconHost.BorderThickness = new Thickness(profile.ShowIconChrome && _theme.IconBorderColor.A > 0 ? 1 : 0);
@@ -2998,9 +3021,7 @@ namespace RadialSek.UI
             }
             if (resetCenterText && _centerSubtitle != null)
             {
-                AnimateCenterText(_centerSubtitle, _isEditModeEnabled
-                    ? string.Empty
-                    : IsNeonOrbitStyle() ? string.Empty : "Bir dilimin üstüne gelin\nve tıklayın");
+                AnimateCenterText(_centerSubtitle, string.Empty);
             }
 
             HideCategoryNameStrip();
@@ -3049,17 +3070,13 @@ namespace RadialSek.UI
             AnimateSubmenuSegment(interaction.SegmentBrush, interaction.Item, true, interaction.AccentColor);
             if (IsNeonOrbitStyle())
             {
-                interaction.SegmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation
-                {
-                    To = System.Windows.Media.Color.FromArgb(52, interaction.AccentColor.R, interaction.AccentColor.G, interaction.AccentColor.B),
-                    Duration = TimeSpan.FromMilliseconds(120),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                });
+                interaction.SegmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+                interaction.SegmentBrush.Color = System.Windows.Media.Color.FromArgb(52, interaction.AccentColor.R, interaction.AccentColor.G, interaction.AccentColor.B);
             }
 
             interaction.IconHost.Background = CreateHostBackground(interaction.Item, isActive: true);
             interaction.IconHost.BorderBrush = CreateHostBorderBrush(interaction.Item, isActive: true);
-            AnimateIconHostState(interaction.IconHost, SubmenuHoverScale, GetLayoutProfile().SubmenuHoverOpacity);
+            AnimateIconHostState(interaction.IconHost, SubmenuHoverScale, GetLayoutProfile().SubmenuHoverOpacity, instant: true);
             _activeSubmenuInteraction = interaction;
             _selectedItem = interaction.Item;
             _selectedInteraction = new DragItemInteraction(
@@ -3076,13 +3093,10 @@ namespace RadialSek.UI
                 ? string.Empty
                 : string.Join(" > ", interaction.BreadcrumbPath);
             var submenuTitle = interaction.Item.Label;
-            var submenuSubtitle = IsCategoryItem(interaction.Item)
-                ? "Bu öğe de alt menü taşıyor"
-                : "Tıklayarak aç";
 
             ShowCategoryHoverBadge(
                 title: submenuTitle,
-                subtitle: submenuSubtitle,
+                subtitle: string.Empty,
                 breadcrumb: submenuBreadcrumb,
                 symbolKey: interaction.Item.CategorySymbolKey,
                 accentColor: interaction.AccentColor,
@@ -3118,40 +3132,33 @@ namespace RadialSek.UI
             AnimateSubmenuSegment(interaction.SegmentBrush, interaction.Item, true, interaction.AccentColor);
             if (IsNeonOrbitStyle())
             {
-                interaction.SegmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation
-                {
-                    To = System.Windows.Media.Color.FromArgb(52, interaction.AccentColor.R, interaction.AccentColor.G, interaction.AccentColor.B),
-                    Duration = TimeSpan.FromMilliseconds(90),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                });
+                interaction.SegmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+                interaction.SegmentBrush.Color = System.Windows.Media.Color.FromArgb(52, interaction.AccentColor.R, interaction.AccentColor.G, interaction.AccentColor.B);
             }
 
             interaction.IconHost.Background = CreateHostBackground(interaction.Item, isActive: true);
             interaction.IconHost.BorderBrush = CreateHostBorderBrush(interaction.Item, isActive: true);
-            AnimateIconHostState(interaction.IconHost, SubmenuHoverScale, GetLayoutProfile().SubmenuHoverOpacity);
+            AnimateIconHostState(interaction.IconHost, SubmenuHoverScale, GetLayoutProfile().SubmenuHoverOpacity, instant: true);
         }
 
         private void ClearSubmenuSelection()
         {
-            if (_activeSubmenuInteraction == null || _activeSubmenuInteraction.Item == null)
+            foreach (var interaction in _hoverInteractionEntries)
             {
-                return;
-            }
-
-            AnimateSubmenuSegment(_activeSubmenuInteraction.SegmentBrush, _activeSubmenuInteraction.Item, false, _activeSubmenuInteraction.AccentColor);
-            if (IsNeonOrbitStyle())
-            {
-                _activeSubmenuInteraction.SegmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation
+                if (interaction.Depth > 0 && interaction.Item != null)
                 {
-                    To = System.Windows.Media.Color.FromArgb(0, _activeSubmenuInteraction.AccentColor.R, _activeSubmenuInteraction.AccentColor.G, _activeSubmenuInteraction.AccentColor.B),
-                    Duration = TimeSpan.FromMilliseconds(140),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                });
+                    AnimateSubmenuSegment(interaction.SegmentBrush, interaction.Item, false);
+                    if (IsNeonOrbitStyle())
+                    {
+                        interaction.SegmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+                        interaction.SegmentBrush.Color = System.Windows.Media.Color.FromArgb(0, interaction.AccentColor.R, interaction.AccentColor.G, interaction.AccentColor.B);
+                    }
+                    interaction.IconHost.Background = CreateHostBackground(interaction.Item, isActive: false);
+                    interaction.IconHost.BorderBrush = CreateHostBorderBrush(interaction.Item, isActive: false);
+                    AnimateIconHostState(interaction.IconHost, 1.0, 1.0, instant: true);
+                }
             }
 
-            _activeSubmenuInteraction.IconHost.Background = CreateHostBackground(_activeSubmenuInteraction.Item, isActive: false);
-            _activeSubmenuInteraction.IconHost.BorderBrush = CreateHostBorderBrush(_activeSubmenuInteraction.Item, isActive: false);
-            AnimateIconHostState(_activeSubmenuInteraction.IconHost, 1.0, 1.0);
             _activeSubmenuInteraction = null;
             if (_activeInteraction != null && _activeInteraction.Item != null && IsCategoryItem(_activeInteraction.Item))
             {
@@ -3230,49 +3237,60 @@ namespace RadialSek.UI
             RemoveHoverAccent();
         }
 
+        private void EnsureHoverAccentVisual()
+        {
+            if (RootCanvas == null)
+            {
+                return;
+            }
+
+            if (_activeAccentPath == null)
+            {
+                _activeAccentPath = new ShapePath
+                {
+                    IsHitTestVisible = false,
+                    Opacity = 0.0,
+                    Visibility = Visibility.Collapsed
+                };
+                Panel.SetZIndex(_activeAccentPath, 185);
+                RootCanvas.Children.Add(_activeAccentPath);
+            }
+            else if (!RootCanvas.Children.Contains(_activeAccentPath))
+            {
+                Panel.SetZIndex(_activeAccentPath, 185);
+                RootCanvas.Children.Add(_activeAccentPath);
+            }
+        }
+
         private void ShowHoverAccent(double startAngle, double endAngle)
         {
-            RemoveHoverAccent();
+            EnsureHoverAccentVisual();
+            if (_activeAccentPath == null)
+            {
+                return;
+            }
 
             var profile = GetLayoutProfile();
-            var accent = new ShapePath
-            {
-                Data = IsNeonOrbitStyle()
-                    ? CreateOrbitNodeGeometry(_centerX, _centerY, profile.IconRadius, (startAngle + endAngle) / 2.0, profile.OuterRadius + 10)
-                    : CreateRingSegmentGeometry(
-                        _centerX,
-                        _centerY,
-                        profile.OuterRadius + 7,
-                        profile.OuterRadius + 7 + Math.Max(5, profile.OuterRadius * 0.03),
-                        startAngle + 0.8,
-                        endAngle - 0.8),
-                Fill = new SolidColorBrush(IsNeonOrbitStyle()
-                    ? Colors.Transparent
-                    : System.Windows.Media.Color.FromArgb(245, 255, 207, 64)),
-                Stroke = IsNeonOrbitStyle() && _activeSegment?.Stroke is SolidColorBrush activeStroke
-                    ? GetCachedBrush(activeStroke.Color)
-                    : null,
-                StrokeThickness = IsNeonOrbitStyle() ? 2.2 : 0,
-                Opacity = 0.0,
-                IsHitTestVisible = false,
-                Effect = CreateOptimizedShadowEffect(
-                    IsNeonOrbitStyle() ? 18 : 14,
-                    IsNeonOrbitStyle() ? 0.85 : 0.65,
-                    IsNeonOrbitStyle() && _activeSegment?.Stroke is SolidColorBrush neonStroke
-                        ? neonStroke.Color
-                        : System.Windows.Media.Color.FromArgb(255, 255, 199, 48))
-            };
+            _activeAccentPath.Data = IsNeonOrbitStyle()
+                ? CreateOrbitNodeGeometry(_centerX, _centerY, profile.IconRadius, (startAngle + endAngle) / 2.0, profile.OuterRadius + 10)
+                : CreateRingSegmentGeometry(
+                    _centerX,
+                    _centerY,
+                    profile.OuterRadius + 7,
+                    profile.OuterRadius + 7 + Math.Max(5, profile.OuterRadius * 0.03),
+                    startAngle + 0.8,
+                    endAngle - 0.8);
+            _activeAccentPath.Fill = IsNeonOrbitStyle()
+                ? System.Windows.Media.Brushes.Transparent
+                : GetCachedBrush(System.Windows.Media.Color.FromArgb(245, 255, 207, 64));
+            _activeAccentPath.Stroke = IsNeonOrbitStyle() && _activeSegment?.Stroke is SolidColorBrush activeStroke
+                ? GetCachedBrush(activeStroke.Color)
+                : null;
+            _activeAccentPath.StrokeThickness = IsNeonOrbitStyle() ? 2.2 : 0;
 
-            RootCanvas.Children.Add(accent);
-            _activeAccentPath = accent;
-
-            var fadeIn = new DoubleAnimation
-            {
-                To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(90),
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-            };
-            accent.BeginAnimation(OpacityProperty, fadeIn);
+            _activeAccentPath.Visibility = Visibility.Visible;
+            _activeAccentPath.BeginAnimation(OpacityProperty, null);
+            _activeAccentPath.Opacity = 1.0;
         }
 
         private void RemoveHoverAccent()
@@ -3282,42 +3300,41 @@ namespace RadialSek.UI
                 return;
             }
 
-            RootCanvas.Children.Remove(_activeAccentPath);
-            _activeAccentPath = null;
+            _activeAccentPath.BeginAnimation(OpacityProperty, null);
+            _activeAccentPath.Opacity = 0.0;
+            _activeAccentPath.Visibility = Visibility.Collapsed;
         }
         private void RefreshHoverOrbitGuide()
         {
             try
             {
+                var profile = GetLayoutProfile();
+
+                if (HasVisibleSubmenu())
+                {
+                    var maxSubmenuDepth = _submenuLayers.Keys.DefaultIfEmpty(1).Max();
+                    var categoryRingRadius = GetSubmenuLayerOuterRadius(profile, maxSubmenuDepth);
+                    var categoryRingColor = _activeInteraction?.Item != null
+                        ? GetItemActiveSegmentColor(_activeInteraction.Item)
+                        : _theme.SegmentActiveColor;
+
+                    var activeAngle = _activeSubmenuInteraction != null
+                        ? GetAngleMidpoint(_activeSubmenuInteraction.StartAngle, _activeSubmenuInteraction.EndAngle)
+                        : (_selectedInteraction != null && !_selectedInteraction.IsGhostSlot
+                            ? GetAngleMidpoint(_selectedInteraction.StartAngle, _selectedInteraction.EndAngle)
+                            : (_activeInteraction != null
+                                ? GetAngleMidpoint(_activeInteraction.StartAngle, _activeInteraction.EndAngle)
+                                : 0.0));
+
+                    ShowHoverOrbitGuide(categoryRingRadius, activeAngle, categoryRingColor);
+                    return;
+                }
+
                 if (_selectedInteraction == null ||
                     _selectedInteraction.Item == null ||
                     _selectedInteraction.IsGhostSlot)
                 {
                     HideHoverOrbitGuide();
-                    return;
-                }
-
-                var profile = GetLayoutProfile();
-                var selectedItem = _selectedInteraction.Item;
-                var selectedDepth = _selectedInteraction.Depth;
-
-                if (selectedDepth > 0)
-                {
-                    var targetOuterRadius = _activeSubmenuInteraction?.OuterRadius ?? GetSubmenuLayerOuterRadius(profile, selectedDepth);
-                    if (IsCategoryItem(selectedItem) && _submenuLayers.ContainsKey(selectedDepth + 1))
-                    {
-                        targetOuterRadius = GetSubmenuLayerOuterRadius(profile, selectedDepth + 1);
-                    }
-
-                    var targetAngle = _activeSubmenuInteraction != null
-                        ? GetAngleMidpoint(_activeSubmenuInteraction.StartAngle, _activeSubmenuInteraction.EndAngle)
-                        : GetAngleMidpoint(_selectedInteraction.StartAngle, _selectedInteraction.EndAngle);
-                    var targetColor = _activeSubmenuInteraction?.AccentColor ?? GetItemActiveSegmentColor(selectedItem);
-
-                    ShowHoverOrbitGuide(
-                        targetOuterRadius,
-                        targetAngle,
-                        targetColor);
                     return;
                 }
 
@@ -3398,54 +3415,26 @@ namespace RadialSek.UI
                 _hoverOrbitRing.Visibility = Visibility.Visible;
                 _hoverOrbitRing.Stroke = GetCachedBrush(ringStrokeColor);
                 _hoverOrbitRing.StrokeThickness = strokeThickness;
-                var ringEffect = CreateOptimizedShadowEffect(
-                    IsNeonOrbitStyle() ? 16 : 12,
-                    IsNeonOrbitStyle() ? 0.20 : 0.15,
-                    ringGlowColor);
-                if (!ReferenceEquals(_hoverOrbitRing.Effect, ringEffect))
+
+                var scaleTransform = _hoverOrbitRing.RenderTransform as ScaleTransform;
+                if (scaleTransform != null)
                 {
-                    _hoverOrbitRing.Effect = ringEffect;
+                    scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    scaleTransform.ScaleX = 1.0;
+                    scaleTransform.ScaleY = 1.0;
                 }
-                if (double.IsNaN(Canvas.GetLeft(_hoverOrbitRing)))
+
+                _hoverOrbitRing.Width = diameter;
+                _hoverOrbitRing.Height = diameter;
+                Canvas.SetLeft(_hoverOrbitRing, left);
+                Canvas.SetTop(_hoverOrbitRing, top);
+
+                if (!ringWasVisible)
                 {
-                    Canvas.SetLeft(_hoverOrbitRing, left);
-                }
-                if (double.IsNaN(Canvas.GetTop(_hoverOrbitRing)))
-                {
-                    Canvas.SetTop(_hoverOrbitRing, top);
-                }
-                if (animateTransition)
-                {
-                    var currentLeft = CoerceFiniteDouble(Canvas.GetLeft(_hoverOrbitRing), left);
-                    var currentTop = CoerceFiniteDouble(Canvas.GetTop(_hoverOrbitRing), top);
-                    _hoverOrbitRing.BeginAnimation(Ellipse.WidthProperty, new DoubleAnimation
-                    {
-                        To = diameter,
-                        Duration = HoverOrbitGuideTransitionDuration,
-                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                    });
-                    _hoverOrbitRing.BeginAnimation(Ellipse.HeightProperty, new DoubleAnimation
-                    {
-                        To = diameter,
-                        Duration = HoverOrbitGuideTransitionDuration,
-                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                    });
-                    _hoverOrbitRing.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation
-                    {
-                        From = currentLeft,
-                        To = left,
-                        Duration = HoverOrbitGuideTransitionDuration,
-                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                    });
-                    _hoverOrbitRing.BeginAnimation(Canvas.TopProperty, new DoubleAnimation
-                    {
-                        From = currentTop,
-                        To = top,
-                        Duration = HoverOrbitGuideTransitionDuration,
-                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                    });
                     _hoverOrbitRing.BeginAnimation(OpacityProperty, new DoubleAnimation
                     {
+                        From = 0.0,
                         To = 1.0,
                         Duration = HoverOrbitGuideTransitionDuration,
                         EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
@@ -3453,70 +3442,14 @@ namespace RadialSek.UI
                 }
                 else
                 {
-                    _hoverOrbitRing.BeginAnimation(Ellipse.WidthProperty, null);
-                    _hoverOrbitRing.BeginAnimation(Ellipse.HeightProperty, null);
-                    _hoverOrbitRing.BeginAnimation(Canvas.LeftProperty, null);
-                    _hoverOrbitRing.BeginAnimation(Canvas.TopProperty, null);
                     _hoverOrbitRing.BeginAnimation(OpacityProperty, null);
-                    _hoverOrbitRing.Width = diameter;
-                    _hoverOrbitRing.Height = diameter;
-                    Canvas.SetLeft(_hoverOrbitRing, left);
-                    Canvas.SetTop(_hoverOrbitRing, top);
                     _hoverOrbitRing.Opacity = 1.0;
                 }
             }
 
-            var angleRadians = ToRadians(angleDegrees);
-            var directionX = Math.Cos(angleRadians);
-            var directionY = Math.Sin(angleRadians);
-            var perpendicularX = -directionY;
-            var perpendicularY = directionX;
-            var triangleLength = Math.Clamp(displayRadius * 0.055, 11.0, 22.0) * HoverOrbitPointerScale;
-            var triangleWidth = Math.Clamp(displayRadius * 0.05, 10.0, 18.0) * HoverOrbitPointerScale;
-            var tipRadius = Math.Max(4.0, displayRadius - (triangleLength * 0.34));
-            var baseCenterRadius = displayRadius + (triangleLength * 0.72);
-            var tip = PointOnCircle(_centerX, _centerY, tipRadius, angleDegrees);
-            var baseCenter = PointOnCircle(_centerX, _centerY, baseCenterRadius, angleDegrees);
-            var leftPoint = new WpfPoint(
-                baseCenter.X + (perpendicularX * triangleWidth * 0.5),
-                baseCenter.Y + (perpendicularY * triangleWidth * 0.5));
-            var rightPoint = new WpfPoint(
-                baseCenter.X - (perpendicularX * triangleWidth * 0.5),
-                baseCenter.Y - (perpendicularY * triangleWidth * 0.5));
-            var rearCurveControl = new WpfPoint(
-                baseCenter.X + (directionX * triangleWidth * 0.58),
-                baseCenter.Y + (directionY * triangleWidth * 0.58));
-
-            if (_hoverOrbitPointer != null)
+            if (_hoverOrbitPointer != null && _hoverOrbitPointer.Visibility != Visibility.Collapsed)
             {
-                _hoverOrbitPointer.Visibility = Visibility.Visible;
-                _hoverOrbitPointer.Fill = GetCachedBrush(System.Windows.Media.Color.FromArgb(245, accentColor.R, accentColor.G, accentColor.B));
-                _hoverOrbitPointer.Stroke = GetCachedBrush(System.Windows.Media.Color.FromArgb(245, 255, 255, 255));
-                _hoverOrbitPointer.StrokeThickness = 0.9;
-                var pointerEffect = CreateOptimizedShadowEffect(
-                    IsNeonOrbitStyle() ? 10 : 7,
-                    IsNeonOrbitStyle() ? 0.16 : 0.10,
-                    ringGlowColor);
-                if (!ReferenceEquals(_hoverOrbitPointer.Effect, pointerEffect))
-                {
-                    _hoverOrbitPointer.Effect = pointerEffect;
-                }
-
-                UpdateHoverOrbitPointerGeometry(tip, leftPoint, rightPoint, rearCurveControl);
-                if (animateTransition)
-                {
-                    _hoverOrbitPointer.BeginAnimation(OpacityProperty, new DoubleAnimation
-                    {
-                        To = 1.0,
-                        Duration = HoverOrbitGuideTransitionDuration,
-                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                    });
-                }
-                else
-                {
-                    _hoverOrbitPointer.BeginAnimation(OpacityProperty, null);
-                    _hoverOrbitPointer.Opacity = 1.0;
-                }
+                _hoverOrbitPointer.Visibility = Visibility.Collapsed;
             }
 
             _hoverOrbitHasState = true;
@@ -3535,10 +3468,13 @@ namespace RadialSek.UI
 
             if (_hoverOrbitRing != null)
             {
-                _hoverOrbitRing.BeginAnimation(Ellipse.WidthProperty, null);
-                _hoverOrbitRing.BeginAnimation(Ellipse.HeightProperty, null);
-                _hoverOrbitRing.BeginAnimation(Canvas.LeftProperty, null);
-                _hoverOrbitRing.BeginAnimation(Canvas.TopProperty, null);
+                if (_hoverOrbitRing.RenderTransform is ScaleTransform scaleTransform)
+                {
+                    scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    scaleTransform.ScaleX = 1.0;
+                    scaleTransform.ScaleY = 1.0;
+                }
                 _hoverOrbitRing.BeginAnimation(OpacityProperty, null);
                 _hoverOrbitRing.Opacity = 0.0;
                 _hoverOrbitRing.Visibility = Visibility.Collapsed;
@@ -3574,6 +3510,7 @@ namespace RadialSek.UI
 
             if (_hoverOrbitRing == null)
             {
+                var scaleTransform = new ScaleTransform(1.0, 1.0);
                 _hoverOrbitRing = new Ellipse
                 {
                     Width = 0,
@@ -3583,47 +3520,14 @@ namespace RadialSek.UI
                     StrokeThickness = 0,
                     IsHitTestVisible = false,
                     SnapsToDevicePixels = true,
-                    CacheMode = new BitmapCache(),
+                    RenderTransformOrigin = new WpfPoint(0.5, 0.5),
+                    RenderTransform = scaleTransform,
                     Opacity = 0.0,
-                    Visibility = Visibility.Collapsed,
-                    Effect = CreateOptimizedShadowEffect(12, 0.16, _theme.CenterBorderColor)
+                    Visibility = Visibility.Collapsed
                 };
                 Canvas.SetLeft(_hoverOrbitRing, _centerX);
                 Canvas.SetTop(_hoverOrbitRing, _centerY);
                 Panel.SetZIndex(_hoverOrbitRing, 190);
-            }
-
-            if (_hoverOrbitPointer == null)
-            {
-                _hoverOrbitPointerFigure = new PathFigure
-                {
-                    StartPoint = new WpfPoint(_centerX, _centerY),
-                    IsClosed = true,
-                    IsFilled = true
-                };
-                _hoverOrbitPointerLeftSegment = new LineSegment(new WpfPoint(_centerX, _centerY), true);
-                _hoverOrbitPointerRearSegment = new QuadraticBezierSegment(
-                    new WpfPoint(_centerX, _centerY),
-                    new WpfPoint(_centerX, _centerY),
-                    true);
-                _hoverOrbitPointerFigure.Segments.Add(_hoverOrbitPointerLeftSegment);
-                _hoverOrbitPointerFigure.Segments.Add(_hoverOrbitPointerRearSegment);
-                _hoverOrbitPointerGeometry = new PathGeometry();
-                _hoverOrbitPointerGeometry.Figures.Add(_hoverOrbitPointerFigure);
-
-                _hoverOrbitPointer = new ShapePath
-                {
-                    Data = _hoverOrbitPointerGeometry,
-                    Fill = System.Windows.Media.Brushes.Transparent,
-                    Stroke = GetCachedBrush(System.Windows.Media.Color.FromArgb(0, 255, 255, 255)),
-                    StrokeThickness = 0,
-                    IsHitTestVisible = false,
-                    SnapsToDevicePixels = true,
-                    CacheMode = new BitmapCache(),
-                    Opacity = 0.0,
-                    Visibility = Visibility.Collapsed
-                };
-                Panel.SetZIndex(_hoverOrbitPointer, 192);
             }
 
             if (!RootCanvas.Children.Contains(_hoverOrbitRing))
@@ -3631,9 +3535,13 @@ namespace RadialSek.UI
                 RootCanvas.Children.Add(_hoverOrbitRing);
             }
 
-            if (!RootCanvas.Children.Contains(_hoverOrbitPointer))
+            if (_hoverOrbitPointer != null)
             {
-                RootCanvas.Children.Add(_hoverOrbitPointer);
+                if (RootCanvas.Children.Contains(_hoverOrbitPointer))
+                {
+                    RootCanvas.Children.Remove(_hoverOrbitPointer);
+                }
+                _hoverOrbitPointer = null;
             }
         }
 
@@ -3658,25 +3566,6 @@ namespace RadialSek.UI
                 : Math.Max(26, profile.SubmenuOuterRadius - profile.SubmenuInnerRadius + 8);
 
             return profile.SubmenuOuterRadius + ((normalizedDepth - 1) * layerGap);
-        }
-
-        private void UpdateHoverOrbitPointerGeometry(
-            WpfPoint tip,
-            WpfPoint leftPoint,
-            WpfPoint rightPoint,
-            WpfPoint rearCurveControl)
-        {
-            if (_hoverOrbitPointerFigure == null ||
-                _hoverOrbitPointerLeftSegment == null ||
-                _hoverOrbitPointerRearSegment == null)
-            {
-                return;
-            }
-
-            _hoverOrbitPointerFigure.StartPoint = tip;
-            _hoverOrbitPointerLeftSegment.Point = leftPoint;
-            _hoverOrbitPointerRearSegment.Point1 = rearCurveControl;
-            _hoverOrbitPointerRearSegment.Point2 = rightPoint;
         }
 
         private static double GetSmallestAngleDelta(double firstAngle, double secondAngle)
@@ -3707,7 +3596,17 @@ namespace RadialSek.UI
             DragItemInteraction? ghostSlot = null,
             System.Windows.Media.Color? inheritedColor = null)
         {
+            if (ghostSlot == null &&
+                _activeSubmenuItems.TryGetValue(depth, out var currentItems) &&
+                ReferenceEquals(currentItems, items) &&
+                _submenuLayers.ContainsKey(depth))
+            {
+                HideSubmenu(depth + 1);
+                return;
+            }
+
             HideSubmenu(depth);
+            _activeSubmenuItems[depth] = items;
             var slotCount = items.Count + (ghostSlot != null ? 1 : 0);
             if (slotCount == 0)
             {
@@ -3762,6 +3661,10 @@ namespace RadialSek.UI
                         ? inheritedColor ?? _theme.SegmentColor
                         : GetItemBaseSegmentColor(item!, inheritedColor);
 
+                var itemActiveColor = isGhostSlot
+                    ? System.Windows.Media.Color.FromArgb(86, 255, 214, 102)
+                    : GetItemActiveSegmentColor(item!);
+
                 var segment = new ShapePath
                 {
                     Data = IsNeonOrbitStyle()
@@ -3775,9 +3678,7 @@ namespace RadialSek.UI
                     Stroke = GetCachedBrush(IsNeonOrbitStyle() ? submenuColor : GetItemStrokeColor(item!, inheritedColor)),
                     StrokeThickness = profile.SubmenuStrokeThickness,
                     Tag = item,
-                    Effect = IsNeonOrbitStyle()
-                        ? CreateOptimizedShadowEffect(10, 0.22, submenuColor)
-                        : null
+                    Effect = null
                 };
                 if (isGhostSlot)
                 {
@@ -3814,7 +3715,7 @@ namespace RadialSek.UI
                         endAngle,
                         ghostSlot.BreadcrumbPath,
                         segmentBrush,
-                        submenuColor,
+                        itemActiveColor,
                         isGhostSlot: true,
                         innerRadius: layerInnerRadius,
                         outerRadius: layerOuterRadius,
@@ -3835,7 +3736,7 @@ namespace RadialSek.UI
                         endAngle,
                         breadcrumbPath,
                         segmentBrush,
-                        submenuColor,
+                        itemActiveColor,
                         isGhostSlot: false,
                         innerRadius: layerInnerRadius,
                         outerRadius: layerOuterRadius,
@@ -3890,16 +3791,12 @@ namespace RadialSek.UI
                         AnimateSubmenuSegment(segmentBrush, currentItem, true, submenuColor);
                         if (IsNeonOrbitStyle())
                         {
-                            segmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation
-                            {
-                                To = System.Windows.Media.Color.FromArgb(52, submenuColor.R, submenuColor.G, submenuColor.B),
-                                Duration = TimeSpan.FromMilliseconds(120),
-                                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                            });
+                            segmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+                            segmentBrush.Color = System.Windows.Media.Color.FromArgb(52, submenuColor.R, submenuColor.G, submenuColor.B);
                         }
                         iconHost.Background = CreateHostBackground(currentItem, isActive: true);
                         iconHost.BorderBrush = CreateHostBorderBrush(currentItem, isActive: true);
-                        AnimateIconHostState(iconHost, SubmenuHoverScale, profile.SubmenuHoverOpacity);
+                        AnimateIconHostState(iconHost, SubmenuHoverScale, profile.SubmenuHoverOpacity, instant: true);
                         _selectedItem = currentItem;
                         _selectedInteraction = new DragItemInteraction(currentItem, items, i, depth, startAngle, endAngle, breadcrumbPath);
                         if (_centerTitle != null)
@@ -3909,9 +3806,7 @@ namespace RadialSek.UI
                         UpdateCenterBreadcrumb(breadcrumbPath ?? Array.Empty<string>());
                         if (_centerSubtitle != null)
                         {
-                            AnimateCenterText(_centerSubtitle, IsCategoryItem(currentItem)
-                                ? "Bu \u00F6\u011Fe de alt men\u00FC ta\u015F\u0131yor"
-                                : "T\u0131klayarak a\u00E7");
+                            AnimateCenterText(_centerSubtitle, string.Empty);
                         }
 
                         if (IsCategoryItem(currentItem))
@@ -3964,19 +3859,15 @@ namespace RadialSek.UI
                         return;
                     }
 
-                    AnimateSubmenuSegment(segmentBrush, item!, false, submenuColor);
+                    AnimateSubmenuSegment(segmentBrush, item!, false);
                     if (IsNeonOrbitStyle())
                     {
-                        segmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation
-                        {
-                            To = System.Windows.Media.Color.FromArgb(0, submenuColor.R, submenuColor.G, submenuColor.B),
-                            Duration = TimeSpan.FromMilliseconds(140),
-                            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                        });
+                        segmentBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+                        segmentBrush.Color = System.Windows.Media.Color.FromArgb(0, submenuColor.R, submenuColor.G, submenuColor.B);
                     }
                     iconHost.Background = CreateHostBackground(item!, isActive: false);
                     iconHost.BorderBrush = CreateHostBorderBrush(item!, isActive: false);
-                    AnimateIconHostState(iconHost, 1.0, 1.0);
+                    AnimateIconHostState(iconHost, 1.0, 1.0, instant: true);
                 }
 
                 void LaunchSub()
@@ -4078,10 +3969,7 @@ namespace RadialSek.UI
                 CornerRadius = new CornerRadius(999),
                 RenderTransformOrigin = new WpfPoint(0.5, 0.5),
                 RenderTransform = new ScaleTransform(1, 1),
-                Effect = CreateOptimizedShadowEffect(
-                    IsNeonOrbitStyle() ? 0 : profile.ShowIconChrome ? 12 : 0,
-                    profile.ShowIconChrome ? 0.28 : 0,
-                    _theme.ShadowColor)
+                Effect = null
             };
         }
 
@@ -4137,10 +4025,7 @@ namespace RadialSek.UI
             }
 
             var target = item.TargetPath ?? "";
-            bool isDirectory = !string.IsNullOrWhiteSpace(target) && 
-                              (Directory.Exists(target) || Directory.Exists(Environment.ExpandEnvironmentVariables(target)));
-
-            if (isDirectory)
+            if (IsDirectoryTarget(target))
             {
                 return CreateFolderVisual(size, isSubmenu);
             }
@@ -4251,7 +4136,7 @@ namespace RadialSek.UI
                 LineHeight = isSubmenu ? 11.8 : 12.4,
                 MaxWidth = Math.Max(46, size * 1.15),
                 Margin = new Thickness(-8, isSubmenu ? 3 : 5, -8, 0),
-                Effect = CreateOptimizedShadowEffect(4, 0.85, Colors.Black, 1)
+                Effect = isSubmenu ? null : CreateOptimizedShadowEffect(4, 0.85, Colors.Black, 1)
             };
         }
 
@@ -4363,6 +4248,7 @@ namespace RadialSek.UI
                     RootCanvas.Children.Remove(element);
                 }
                 _submenuLayers.Remove(depth);
+                _activeSubmenuItems.Remove(depth);
             }
         }
 
@@ -4381,37 +4267,19 @@ namespace RadialSek.UI
             var target = active
                 ? GetItemActiveSegmentColor(item)
                 : GetItemBaseSegmentColor(item);
-            if (brush.Color == target)
-            {
-                return;
-            }
 
-            var animation = new ColorAnimation
-            {
-                To = target,
-                Duration = TimeSpan.FromMilliseconds(active ? 108 : 142),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            brush.Color = target;
         }
 
         private void AnimateSubmenuSegment(SolidColorBrush brush, MenuItemConfig item, bool active, System.Windows.Media.Color? inheritedColor)
         {
             var target = active
-                ? GetItemActiveSegmentColor(item, inheritedColor)
-                : GetItemBaseSegmentColor(item, inheritedColor);
-            if (brush.Color == target)
-            {
-                return;
-            }
+                ? GetItemActiveSegmentColor(item)
+                : GetItemBaseSegmentColor(item);
 
-            var animation = new ColorAnimation
-            {
-                To = target,
-                Duration = TimeSpan.FromMilliseconds(active ? 108 : 142),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            brush.Color = target;
         }
 
         private LayoutProfile GetLayoutProfile()
@@ -4979,6 +4847,77 @@ namespace RadialSek.UI
             return ResolveCategoryStripFontFamily(configuredFontKey);
         }
 
+        private void EnsureCategoryHoverBadgeVisual()
+        {
+            if (RootCanvas == null)
+            {
+                return;
+            }
+
+            if (_categoryNameStrip == null)
+            {
+                _categorySymbolContainer = new Border
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Visibility = Visibility.Collapsed
+                };
+
+                _categoryBreadcrumbBlock = new TextBlock
+                {
+                    FontFamily = new System.Windows.Media.FontFamily("Segoe UI Semibold"),
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 3),
+                    Visibility = Visibility.Collapsed
+                };
+
+                _categoryTitleBlock = new TextBlock
+                {
+                    FontWeight = FontWeights.Bold,
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Visibility = Visibility.Collapsed
+                };
+
+                _categorySubtitleBlock = new TextBlock
+                {
+                    FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    Visibility = Visibility.Collapsed
+                };
+
+                var content = new StackPanel
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                content.Children.Add(_categorySymbolContainer);
+                content.Children.Add(_categoryBreadcrumbBlock);
+                content.Children.Add(_categoryTitleBlock);
+                content.Children.Add(_categorySubtitleBlock);
+
+                _categoryNameStrip = new Border
+                {
+                    BorderThickness = new Thickness(1.4),
+                    IsHitTestVisible = false,
+                    Child = content,
+                    Visibility = Visibility.Collapsed
+                };
+                Panel.SetZIndex(_categoryNameStrip, 300);
+                RootCanvas.Children.Add(_categoryNameStrip);
+            }
+            else if (!RootCanvas.Children.Contains(_categoryNameStrip))
+            {
+                Panel.SetZIndex(_categoryNameStrip, 300);
+                RootCanvas.Children.Add(_categoryNameStrip);
+            }
+        }
+
         private void ShowCategoryHoverBadge(
             string title,
             string subtitle,
@@ -4995,7 +4934,12 @@ namespace RadialSek.UI
                 return;
             }
 
-            HideCategoryNameStrip();
+            EnsureCategoryHoverBadgeVisual();
+            if (_categoryNameStrip == null || _categoryTitleBlock == null || _categoryBreadcrumbBlock == null ||
+                _categorySubtitleBlock == null || _categorySymbolContainer == null)
+            {
+                return;
+            }
 
             var profile = GetLayoutProfile();
             var diameter = Math.Clamp(profile.CenterSize * 0.96, 104, 184);
@@ -5003,97 +4947,81 @@ namespace RadialSek.UI
             var topColor = BlendColors(baseColor, Colors.White, 0.14);
             var bottomColor = BlendColors(baseColor, Colors.Black, 0.18);
             var textColor = GetContrastingTextColor(baseColor);
-            var textShadowColor = GetContrastingTextColor(textColor);
             var titleBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(245, textColor.R, textColor.G, textColor.B));
             var subtitleBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(218, textColor.R, textColor.G, textColor.B));
             var breadcrumbBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(195, textColor.R, textColor.G, textColor.B));
-            var textShadow = CreateOptimizedShadowEffect(4.5, 0.26, textShadowColor);
 
-            var badge = new Border
-            {
-                Width = diameter,
-                Height = diameter,
-                CornerRadius = new CornerRadius(diameter / 2.0),
-                BorderThickness = new Thickness(1.4),
-                BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(176, textColor.R, textColor.G, textColor.B)),
-                Background = GetCachedLinearGradientBrush(
-                    System.Windows.Media.Color.FromArgb(244, topColor.R, topColor.G, topColor.B),
-                    System.Windows.Media.Color.FromArgb(248, bottomColor.R, bottomColor.G, bottomColor.B),
-                    new WpfPoint(0.18, 0.06),
-                    new WpfPoint(0.82, 0.94)),
-                IsHitTestVisible = false,
-                Effect = CreateOptimizedShadowEffect(18, 0.26, accentColor),
-                Opacity = Math.Max(0.84, _categoryStripOpacity)
-            };
+            _categoryNameStrip.Width = diameter;
+            _categoryNameStrip.Height = diameter;
+            _categoryNameStrip.CornerRadius = new CornerRadius(diameter / 2.0);
+            _categoryNameStrip.BorderBrush = GetCachedBrush(System.Windows.Media.Color.FromArgb(176, textColor.R, textColor.G, textColor.B));
+            _categoryNameStrip.Background = GetCachedLinearGradientBrush(
+                System.Windows.Media.Color.FromArgb(244, topColor.R, topColor.G, topColor.B),
+                System.Windows.Media.Color.FromArgb(248, bottomColor.R, bottomColor.G, bottomColor.B),
+                new WpfPoint(0.18, 0.06),
+                new WpfPoint(0.82, 0.94));
+            _categoryNameStrip.Opacity = Math.Max(0.84, _categoryStripOpacity);
 
-            var content = new StackPanel
+            if (_categoryNameStrip.Child is StackPanel stack)
             {
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(Math.Max(10, diameter * 0.1))
-            };
+                stack.Margin = new Thickness(Math.Max(10, diameter * 0.1));
+            }
 
             if (showSymbol)
             {
                 var symbolSize = Math.Clamp(diameter * 0.34, 28, 58);
-                var symbolVisual = CategorySymbolService.CreateSymbolVisual(symbolKey, symbolSize, titleBrush);
-                symbolVisual.Margin = new Thickness(0, 0, 0, 6);
-                content.Children.Add(symbolVisual);
+                _categorySymbolContainer.Child = CategorySymbolService.CreateSymbolVisual(symbolKey, symbolSize, titleBrush);
+                _categorySymbolContainer.Visibility = Visibility.Visible;
+                _categoryBreadcrumbBlock.Visibility = Visibility.Collapsed;
             }
-            else if (!string.IsNullOrWhiteSpace(breadcrumb))
+            else
             {
-                content.Children.Add(new TextBlock
+                _categorySymbolContainer.Child = null;
+                _categorySymbolContainer.Visibility = Visibility.Collapsed;
+                if (!string.IsNullOrWhiteSpace(breadcrumb))
                 {
-                    Text = breadcrumb,
-                    Foreground = breadcrumbBrush,
-                    FontFamily = new System.Windows.Media.FontFamily("Segoe UI Semibold"),
-                    FontSize = Math.Clamp(diameter * 0.085, 10, 13),
-                    TextAlignment = TextAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = diameter * 0.72,
-                    Margin = new Thickness(0, 0, 0, 3),
-                    Effect = textShadow
-                });
+                    _categoryBreadcrumbBlock.Text = breadcrumb;
+                    _categoryBreadcrumbBlock.Foreground = breadcrumbBrush;
+                    _categoryBreadcrumbBlock.FontSize = Math.Clamp(diameter * 0.085, 10, 13);
+                    _categoryBreadcrumbBlock.MaxWidth = diameter * 0.72;
+                    _categoryBreadcrumbBlock.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    _categoryBreadcrumbBlock.Visibility = Visibility.Collapsed;
+                }
             }
 
-            content.Children.Add(new TextBlock
+            if (!string.IsNullOrWhiteSpace(title))
             {
-                Text = title,
-                Foreground = titleBrush,
-                FontFamily = ResolveReadableCategoryStripFont(_categoryStripFont, title),
-                FontSize = Math.Clamp(diameter * (showSymbol ? 0.112 : 0.13), 12, 20),
-                FontWeight = FontWeights.Bold,
-                TextAlignment = TextAlignment.Center,
-                TextWrapping = TextWrapping.Wrap,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = diameter * 0.74,
-                Effect = textShadow
-            });
+                _categoryTitleBlock.Text = title;
+                _categoryTitleBlock.Foreground = titleBrush;
+                _categoryTitleBlock.FontFamily = ResolveReadableCategoryStripFont(_categoryStripFont, title);
+                _categoryTitleBlock.FontSize = Math.Clamp(diameter * (showSymbol ? 0.112 : 0.13), 12, 20);
+                _categoryTitleBlock.MaxWidth = diameter * 0.74;
+                _categoryTitleBlock.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _categoryTitleBlock.Visibility = Visibility.Collapsed;
+            }
 
             if (!string.IsNullOrWhiteSpace(subtitle))
             {
-                content.Children.Add(new TextBlock
-                {
-                    Text = subtitle,
-                    Foreground = subtitleBrush,
-                    FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
-                    FontSize = Math.Clamp(diameter * 0.083, 10, 13.5),
-                    TextAlignment = TextAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = diameter * 0.72,
-                    Margin = new Thickness(0, 4, 0, 0),
-                    Effect = textShadow
-                });
+                _categorySubtitleBlock.Text = subtitle;
+                _categorySubtitleBlock.Foreground = subtitleBrush;
+                _categorySubtitleBlock.FontSize = Math.Clamp(diameter * 0.083, 10, 13.5);
+                _categorySubtitleBlock.MaxWidth = diameter * 0.72;
+                _categorySubtitleBlock.Visibility = Visibility.Visible;
             }
-
-            badge.Child = content;
-            _categoryNameStrip = badge;
-            _categoryBridgeDot = null;
+            else
+            {
+                _categorySubtitleBlock.Visibility = Visibility.Collapsed;
+            }
 
             Canvas.SetLeft(_categoryNameStrip, _centerX - (diameter / 2.0));
             Canvas.SetTop(_categoryNameStrip, _centerY - (diameter / 2.0));
-            Panel.SetZIndex(_categoryNameStrip, 300);
-            RootCanvas.Children.Add(_categoryNameStrip);
+            _categoryNameStrip.Visibility = Visibility.Visible;
         }
 
         private static System.Windows.Media.Color GetContrastingTextColor(System.Windows.Media.Color backgroundColor)
@@ -5123,8 +5051,7 @@ namespace RadialSek.UI
         {
             if (_categoryNameStrip != null)
             {
-                RootCanvas.Children.Remove(_categoryNameStrip);
-                _categoryNameStrip = null;
+                _categoryNameStrip.Visibility = Visibility.Collapsed;
             }
 
             if (_categoryBridgeDot != null)
@@ -6149,6 +6076,7 @@ namespace RadialSek.UI
             }
             panel.Children.Add(addCategoryRow);
             panel.Children.Add(fixedColorRow);
+
             panel.Children.Add(settingsRow);
             panel.Children.Add(deleteRow);
 
@@ -6327,6 +6255,19 @@ namespace RadialSek.UI
                     Margin = new Thickness(0, 2, 0, 8)
                 });
             }
+
+            var isSideMenuEnabled = _toolsSettings.SideMenu?.EnableSideMenu == true;
+            var sideMenuRow = CreateContextMenuActionRow(
+                "Yan Menü",
+                isSideMenuEnabled ? "Açık • Kapatmak için tıkla" : "Kapalı • Açmak için tıkla",
+                isSideMenuEnabled
+                    ? System.Windows.Media.Color.FromArgb(238, 255, 230, 140)
+                    : System.Windows.Media.Color.FromArgb(200, 190, 200, 215),
+                isSideMenuEnabled
+                    ? System.Windows.Media.Color.FromArgb(96, 245, 175, 45)
+                    : System.Windows.Media.Color.FromArgb(60, 120, 130, 145),
+                ToggleSideMenuFromUtilityDock);
+            panel.Children.Add(sideMenuRow);
 
             panel.Children.Add(settingsRow);
 
@@ -7039,6 +6980,28 @@ namespace RadialSek.UI
             }
         }
 
+        private void ToggleSideMenuFromUtilityDock()
+        {
+            _toolsSettings.SideMenu ??= new SideMenuToolSettings();
+            _toolsSettings.SideMenu.EnableSideMenu = !_toolsSettings.SideMenu.EnableSideMenu;
+            _config.Tools ??= new ToolsSettings();
+            _config.Tools.SideMenu ??= new SideMenuToolSettings();
+            _config.Tools.SideMenu.EnableSideMenu = _toolsSettings.SideMenu.EnableSideMenu;
+
+            try
+            {
+                _configService.SaveConfig(_config);
+            }
+            catch
+            {
+            }
+
+            SideDockService.Instance.Initialize(_launcherService, _configService, _config);
+            SideDockService.Instance.SetEnabled(_toolsSettings.SideMenu.EnableSideMenu);
+            PlayUiSound(_toolsSettings.SideMenu.EnableSideMenu ? SoundCue.UiToggleOn : SoundCue.UiToggleOff);
+            HideItemContextMenu();
+        }
+
         private void StartStopwatchFromUtilityDock()
         {
             if (!_toolsSettings.Stopwatch.EnableStopwatchTool)
@@ -7185,6 +7148,7 @@ namespace RadialSek.UI
                 }
             }
             panel.Children.Add(addCategoryRow);
+
             panel.Children.Add(settingsRow);
 
             var menu = new Border
@@ -8479,18 +8443,14 @@ namespace RadialSek.UI
             RootCanvas.BeginAnimation(OpacityProperty, fadeOut);
         }
 
+        private WpfPoint _lastProcessedMouseMovePoint;
+        private DateTime _lastMouseMoveProcessUtc = DateTime.MinValue;
+
         private void OnPreviewMouseMove(object sender, MouseEventArgs e)
         {
             try
             {
-                UpdateBackdropInteractivity();
-
-                if (_itemContextMenu != null)
-                {
-                    return;
-                }
-
-                if (_isPaging)
+                if (_itemContextMenu != null || _isPaging)
                 {
                     return;
                 }
@@ -8545,6 +8505,17 @@ namespace RadialSek.UI
 
                     ClearPendingDragCategoryOpen(resetSubmenu: true);
                 }
+
+                var currentPoint = e.GetPosition(RootCanvas);
+                var moveDx = currentPoint.X - _lastProcessedMouseMovePoint.X;
+                var moveDy = currentPoint.Y - _lastProcessedMouseMovePoint.Y;
+                if ((moveDx * moveDx + moveDy * moveDy) < 0.25)
+                {
+                    return;
+                }
+                _lastProcessedMouseMovePoint = currentPoint;
+
+                UpdateBackdropInteractivity();
 
                 if (_isAltGuideActive)
                 {

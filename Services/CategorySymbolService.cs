@@ -95,12 +95,24 @@ namespace RadialSek.Services
 
         private static Shape CreateStrokeShape(Shape shape, Brush strokeBrush, double thickness)
         {
+            if (strokeBrush != null && strokeBrush.CanFreeze && !strokeBrush.IsFrozen)
+            {
+                strokeBrush.Freeze();
+            }
             shape.Stroke = strokeBrush;
             shape.StrokeThickness = thickness;
             shape.StrokeStartLineCap = PenLineCap.Round;
             shape.StrokeEndLineCap = PenLineCap.Round;
             shape.StrokeLineJoin = PenLineJoin.Round;
             shape.SnapsToDevicePixels = true;
+            if (shape is Path p && p.Data != null && p.Data.CanFreeze && !p.Data.IsFrozen)
+            {
+                p.Data.Freeze();
+            }
+            if (shape is Polyline poly && poly.Points != null && poly.Points.CanFreeze && !poly.Points.IsFrozen)
+            {
+                poly.Points.Freeze();
+            }
             return shape;
         }
 

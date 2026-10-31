@@ -73,6 +73,8 @@ namespace RadialSek.Services
             config.Tools.Alarm ??= new AlarmToolSettings();
             config.Tools.Stopwatch ??= new StopwatchToolSettings();
             config.Tools.ShutdownTimer ??= new ShutdownTimerToolSettings();
+            config.Tools.SideMenu ??= new SideMenuToolSettings();
+            config.Tools.SideMenu.Items ??= new System.Collections.Generic.List<MenuItemConfig>();
             config.Tools.Alarm.DueNotificationSoundPath ??= string.Empty;
             config.Tools.Alarm.DueNotificationSoundVolume = ClampUnitVolume(config.Tools.Alarm.DueNotificationSoundVolume, 0.9);
             if (config.Shortcuts == null || config.Shortcuts.Count == 0)
